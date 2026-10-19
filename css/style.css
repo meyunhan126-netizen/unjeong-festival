@@ -805,6 +805,13 @@ input.mini, select.mini { padding: 6px 8px; font-size: .84rem; min-width: 110px;
 .qr-invalid .big-ico { font-size: 2.4rem; margin: 0; }
 .qr-invalid h2 { font-family: var(--font-serif); }
 
+/* 혼잡도 방식 선택 · 직접 고치기 */
+.mode-panel .type-pick label small { line-height: 1.45; }
+.crowd-btns.three { grid-template-columns: repeat(3, 1fr); }
+.adjust-panel { border-left: 3px solid var(--gold); }
+.stat b.sm-num, .q-stats b.q-small { font-size: 1.15rem; }
+.mode-sel { padding: 5px 6px; font-size: .82rem; width: auto; }
+
 /* =========================================================
    휴대폰: PC와 같은 구성 · 같은 글자 비율로 화면 폭에 맞춤
    - 하단 탭바 대신 PC처럼 상단 메뉴 사용 (상단바 2줄: 로고·날짜시각·로그인 / 메뉴)
