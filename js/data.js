@@ -175,6 +175,8 @@ function createSeed() {
       shortNotice: '',
       stopped: false,
       resvOpen: true,               // 예약 접수 중 (관리자가 마감 가능)
+      // 당일 부스 혼잡도 방식: 'qr' = QR 줄서기 인원으로 자동 / 'manual' = 운영자가 직접 입력
+      crowdMode: 'qr', crowd: 'free', waiting: 0, crowdOverride: '', waitAdjust: 0,
       qrToken: newToken(), qrCreatedAt: now,   // QR 코드 (관리자가 다시 만들거나 삭제 가능)
       slotConfig: isReserve ? { start: '10:00', end: '16:00', interval: s.min >= 30 ? 30 : 20, capacity: s.min >= 30 ? 6 : 8 } : null,
     };

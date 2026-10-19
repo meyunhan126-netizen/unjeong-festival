@@ -283,6 +283,20 @@ const Store = (() => {
   const publicBooths = () => db.booths.filter(b => b.status === 'approved');
   function updateBooth(id, patch) { Object.assign(booth(id), patch); return commit([['update', 'booths', id, patch]]); }
   function setCrowd(id, patch) { return updateBooth(id, { ...patch, crowdUpdatedAt: now() }); }
+  // 혼잡도 방식 바꾸기. 직접 입력으로 바꿀 때는 지금 보이는 값을 이어받아 숫자가 갑자기 0이 되지 않게 함
+  function setCrowdMode(id, mode) {
+    const b = booth(id);
+    if (!b || b.type === 'reserve') return Promise.resolve(false);
+    if (mode === 'manual') {
+      const w = waitingOf(b), lv = crowdKey(b);
+      return setCrowd(id, { crowdMode: 'manual', waiting: w, crowd: lv === 'closed' ? 'free' : lv });
+    }
+    return setCrowd(id, { crowdMode: 'qr' });
+  }
+  // QR 방식에서 운영자가 혼잡도를 직접 고정 ('' = 자동으로 되돌리기)
+  function setCrowdOverride(id, level) { return setCrowd(id, { crowdOverride: CROWD[level] ? level : '' }); }
+  // QR 방식에서 대기 인원 보정 (QR 없이 줄 선 사람 +, 이미 떠난 사람 -)
+  function setWaitAdjust(id, n) { return setCrowd(id, { waitAdjust: Math.max(-99, Math.min(99, Math.round(Number(n) || 0))) }); }
 
   // ---------- 혼잡도: 사람이 입력하지 않고 자동으로 계산 ----------
   //   당일 부스 = QR 줄서기 대기 인원 / 예약 부스 = 다가오는 3회차의 예약률
@@ -296,13 +310,20 @@ const Store = (() => {
       const ratio = next.reduce((a, s) => a + (s.count || 0), 0) / cap;
       return ratio >= 0.9 ? 'busy' : ratio >= 0.5 ? 'normal' : 'free';
     }
-    const w = waitingOf(b);
-    return w >= st.queueBusy ? 'busy' : w >= st.queueNormal ? 'normal' : 'free';
+    // 당일 부스: 직접 입력 방식이면 운영자가 고른 값, QR 방식이면 운영자 조정값 → 없으면 대기 인원으로 자동
+    if (isManual(b)) return CROWD[b.crowd] && b.crowd !== 'closed' ? b.crowd : 'free';
+    if (b.crowdOverride && CROWD[b.crowdOverride]) return b.crowdOverride;
+    return levelOf(waitingOf(b));
   }
+  // 대기 인원 → 혼잡도 단계 (관리자 → 설정의 기준 인원)
+  const levelOf = (w) => (w >= db.settings.queueBusy ? 'busy' : w >= db.settings.queueNormal ? 'normal' : 'free');
+  // 당일 부스의 혼잡도 방식: 'qr'(QR 줄서기로 자동, 기본) | 'manual'(운영자가 직접 입력)
+  const isManual = (b) => b.type !== 'reserve' && b.crowdMode === 'manual';
   function waitMinutes(b) { return waitingOf(b) * b.minPerPerson; }
-  // 경고: 대기자가 있는데 오랫동안 호출이 없음 (운영자가 앱을 안 보고 있을 가능성)
+  // 경고: 직접 입력 방식은 오랫동안 혼잡도를 안 바꿈 / QR 방식은 대기자가 있는데 오랫동안 호출이 없음
   function isStale(b) {
     if (b.stopped || b.type === 'reserve') return false;
+    if (isManual(b)) return now() - (b.crowdUpdatedAt || 0) > db.settings.staleMin * 60000;
     const q = queue(b.id);
     if (!q.waiting) return false;
     const since = q.lastCallAt || q.createdAt || 0;
@@ -556,7 +577,7 @@ const Store = (() => {
     }
     if (opts.status) {
       db.booths.forEach(b => {
-        const patch = { stopped: false, shortNotice: '', resvOpen: true, crowdUpdatedAt: now() };
+        const patch = { stopped: false, shortNotice: '', resvOpen: true, crowdUpdatedAt: now(), crowdOverride: '', waitAdjust: 0, crowd: 'free', waiting: 0 };
         Object.assign(b, patch);
         ops.push(['update', 'booths', b.id, patch]);
       });
@@ -583,7 +604,10 @@ const Store = (() => {
   const emptyQueue = (id) => ({ id, seq: 0, waiting: 0, nowServing: 0, open: true, createdAt: now(), lastCallAt: 0 });
   const queue = (boothId) => (db.queues || []).find(q => q.id === boothId) || emptyQueue(boothId);
   const hasQueue = (boothId) => (db.queues || []).some(q => q.id === boothId);
-  const waitingOf = (b) => queue(b.id).waiting || 0;
+  // 관람객에게 보이는 대기 인원
+  //   직접 입력: 운영자가 입력한 숫자 / QR: QR 번호표 대기 인원 + 운영자 보정(QR 없이 줄 선 사람 등, 음수 가능)
+  const waitingOf = (b) => (isManual(b) ? Math.max(0, Number(b.waiting) || 0)
+    : Math.max(0, (queue(b.id).waiting || 0) + (Number(b.waitAdjust) || 0)));
   const ticket = (id) => db.tickets.find(t => t.id === id);
   const ticketsOf = (boothId) => db.tickets.filter(t => t.boothId === boothId).sort((a, b) => a.no - b.no);
   const myTickets = () => db.tickets.filter(t => t.device === device() && t.source !== 'walkin').sort((a, b) => b.createdAt - a.createdAt);
@@ -614,6 +638,7 @@ const Store = (() => {
     if (!b || b.type === 'reserve') return { ok: false, msg: '줄서기를 받지 않는 부스입니다.' };
     if (!name) return { ok: false, msg: '이름을 입력해 주세요.' };
     if (b.stopped) return { ok: false, msg: '현재 운영이 중단된 부스입니다.' };
+    if (isManual(b) && source === 'qr') return { ok: false, msg: '이 부스는 현장 줄서기로 운영해요. 부스 앞에 줄을 서 주세요.' };
     if (!hasQueue(boothId) || queue(boothId).open === false) return { ok: false, msg: '지금은 줄서기 접수를 받지 않아요.' };
     if (source === 'qr') {
       if (b.status !== 'approved') return { ok: false, msg: '아직 공개되지 않은 부스입니다.' };
@@ -958,6 +983,7 @@ const Store = (() => {
       id, name: (opts.name || '').trim() || opts.club + ' 부스', club: opts.club, emoji: opts.emoji || '⭐', color: '#4f46e5',
       type, building, floor, room, themes: [], summary: '', cover: '', blocks: [], status: 'draft',
       minPerPerson: 3, crowdUpdatedAt: now(), shortNotice: '', stopped: false,
+      crowdMode: 'qr', crowd: 'free', waiting: 0, crowdOverride: '', waitAdjust: 0,
       slotConfig: type === 'reserve' ? { start: '10:00', end: '15:00', interval: 20, capacity: 6 } : null,
     };
     db.booths.push(b);
@@ -1144,6 +1170,11 @@ const Store = (() => {
       b.themes = Array.isArray(b.themes) ? b.themes : [];
       b.blocks = Array.isArray(b.blocks) ? b.blocks : [];
       b.minPerPerson = Number(b.minPerPerson) || 1;
+      b.crowdMode = b.crowdMode === 'manual' ? 'manual' : 'qr';
+      b.crowd = ['free', 'normal', 'busy'].includes(b.crowd) ? b.crowd : 'free';
+      b.waiting = Math.max(0, Number(b.waiting) || 0);
+      b.crowdOverride = ['free', 'normal', 'busy'].includes(b.crowdOverride) ? b.crowdOverride : '';
+      b.waitAdjust = Number(b.waitAdjust) || 0;
       b.crowdUpdatedAt = Number(b.crowdUpdatedAt) || now();
       b.status = ['draft', 'pending', 'approved', 'hidden'].includes(b.status) ? b.status : 'pending';
       b.type = b.type === 'reserve' ? 'reserve' : 'live';
@@ -1239,7 +1270,7 @@ const Store = (() => {
   return {
     REMOTE, KEY, PRESENCE_KEY, get db() { return db; },
     init, reloadLocal, now, nowMin, setSimTime, device,
-    booths, booth, publicBooths, updateBooth, setCrowd, crowdKey, waitMinutes, isStale,
+    booths, booth, publicBooths, updateBooth, setCrowd, crowdKey, levelOf, isManual, setCrowdMode, setCrowdOverride, setWaitAdjust, waitMinutes, isStale,
     queue, hasQueue, ensureQueue, waitingOf, ticket, ticketsOf, myTickets, myActiveTickets, aheadOf,
     joinQueue, setTicketStatus, cancelTicket, callNext, setQueueOpen,
     today, slotTs, slotEndTs, slot, slotsOf, slotCount, slotLeft, slotState, bookedOf, remaining, remainingToday, datesOf,

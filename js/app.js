@@ -518,8 +518,9 @@ function viewBooth(id) {
 function crowdInfo(b) {
   if (b.stopped) return '운영자가 잠시 운영을 멈췄어요';
   if (b.type === 'reserve') return '다가오는 회차 예약률로 자동 계산돼요';
+  if (Store.isManual(b)) return (Store.isStale(b) ? '⚠️ 정보가 오래되었을 수 있어요 · ' : '') + `운영자가 직접 알려 주는 정보 · ${timeAgo(b.crowdUpdatedAt)} 업데이트`;
   const q = Store.queue(b.id);
-  const parts = ['QR 줄서기 인원으로 자동 계산'];
+  const parts = [b.crowdOverride && CROWD[b.crowdOverride] ? '운영자가 현장 상황에 맞게 조정했어요' : 'QR 줄서기 인원으로 자동 계산'];
   if (q.nowServing) parts.push(`지금 ${q.nowServing}번까지 호출`);
   if (q.lastCallAt && q.waiting) parts.push(`최근 호출 ${timeAgo(q.lastCallAt)}`);
   return (Store.isStale(b) ? '⚠️ 한동안 호출이 없었어요 · ' : '') + parts.join(' · ');
@@ -532,7 +533,7 @@ function crowdInfo(b) {
 function viewQR(id, token) {
   const b = Store.booth(id);
   if (b && b.status === 'approved' && Store.qrValid(id, token)) {
-    location.replace('#/' + (b.type === 'reserve' ? 'booth/' : 'q/') + id);
+    location.replace('#/' + (b.type === 'reserve' || Store.isManual(b) ? 'booth/' : 'q/') + id);
     return;
   }
   app.innerHTML = `
@@ -555,7 +556,8 @@ function viewQueue(id) {
     app.innerHTML = '<p class="empty">아직 공개되지 않았거나 없는 부스입니다.<br><a href="#/">홈으로</a></p>';
     return;
   }
-  if (b.type === 'reserve') { location.hash = '#/booth/' + id; return; }
+  // 예약 부스, 또는 직접 입력(현장 줄서기) 부스는 부스 페이지로 (단, 예전에 받은 번호표가 있으면 이 화면에서 보여 줌)
+  if (b.type === 'reserve' || (Store.isManual(b) && !Store.myActiveTickets().some(t => t.boothId === id))) { location.replace('#/booth/' + id); return; }
   app.innerHTML = `
     ${pageBanner('줄서기', 'QUEUE', [[b.name, '#/booth/' + b.id], ['줄서기', '']])}
     <div class="q-head">
@@ -580,11 +582,13 @@ function renderQueue(b, box) {
   const student = sess && sess.role === 'student' ? sess : null;
   const mine = Store.myActiveTickets().find(t => t.boothId === b.id);
   const about = Store.REMOTE ? '약 ' : '';
+  const manual = Store.isManual(b);
   const stats = `
     <div class="q-stats">
-      <div><small>지금 대기</small><b>${q.waiting || 0}<i>명</i></b></div>
+      <div><small>지금 대기</small><b>${Store.waitingOf(b)}<i>명</i></b></div>
       <div><small>예상 대기</small><b>${Store.waitMinutes(b)}<i>분</i></b></div>
-      <div><small>호출 번호</small><b>${q.nowServing ? `${q.nowServing}<i>번</i>` : '-'}</b></div>
+      ${manual ? `<div><small>업데이트</small><b class="q-small">${timeAgo(b.crowdUpdatedAt)}</b></div>`
+        : `<div><small>호출 번호</small><b>${q.nowServing ? `${q.nowServing}<i>번</i>` : '-'}</b></div>`}
     </div>`;
 
   if (mine && mine.status === 'called') {
@@ -606,6 +610,11 @@ function renderQueue(b, box) {
       </div>
       ${stats}
       <div class="row"><a class="btn ghost grow" href="#/my">내 티켓</a><button class="btn ghost grow" data-tcancel="${mine.id}">줄서기 취소</button></div>`;
+  } else if (manual) {
+    // 직접 입력 방식: 번호표 없이 현장에서 줄서기
+    box.innerHTML = `
+      <h3>🚶 현장 줄서기</h3>${stats}
+      <p class="small muted">${b.stopped ? '지금은 운영이 잠시 중단되었어요.' : '이 부스는 번호표 없이 <b>부스 앞에 직접 줄을 서요.</b> 대기 인원은 운영자가 현장에서 알려 주는 숫자예요.'}</p>`;
   } else if (b.stopped) {
     box.innerHTML = `<h3>🙋 QR 줄서기</h3>${stats}<p class="empty">지금은 운영이 중단되어 줄을 설 수 없어요.</p>`;
   } else if (q.open === false || !Store.hasQueue(b.id)) {
@@ -708,7 +717,7 @@ function updateCallBar() {
 // ---------- QR 코드 ----------
 // QR에 담기는 주소: #/qr/부스ID/무작위값 → 관리자가 QR을 삭제하거나 다시 만들면 예전 QR은 더 이상 열리지 않음
 const appBase = () => location.origin + location.pathname;
-const boothURL = (b) => appBase() + '#/' + (b.type === 'reserve' ? 'booth/' : 'q/') + b.id;   // 일반 링크 (주소 복사용)
+const boothURL = (b) => appBase() + '#/' + (b.type === 'reserve' || Store.isManual(b) ? 'booth/' : 'q/') + b.id;   // 일반 링크 (주소 복사용)
 const qrURL = (b) => (b.qrToken ? `${appBase()}#/qr/${b.id}/${b.qrToken}` : '');
 function qrSVG(text) {
   if (!window.qrcode) return `<div class="qr-missing">QR 코드를 만들지 못했어요.<br>js/qrcode.js 파일이 있는지 확인하세요.</div>`;
@@ -719,7 +728,8 @@ function qrSVG(text) {
 }
 function qrCard(b) {
   const url = qrURL(b);
-  const live = b.type !== 'reserve';
+  const live = b.type !== 'reserve' && !Store.isManual(b);   // QR 줄서기 부스
+  const manual = Store.isManual(b);
   if (!url) return `
     <div class="qr-card empty-qr">
       <p class="qr-eyebrow">NO QR CODE</p>
@@ -730,11 +740,11 @@ function qrCard(b) {
     </div>`;
   return `
     <div class="qr-card">
-      <p class="qr-eyebrow">${live ? 'SCAN TO QUEUE' : 'SCAN TO RESERVE'}</p>
+      <p class="qr-eyebrow">${live ? 'SCAN TO QUEUE' : manual ? 'SCAN FOR INFO' : 'SCAN TO RESERVE'}</p>
       <h3>${b.emoji} ${esc(b.name)}</h3>
       <p class="qr-sub">${esc(b.club)} · ${locText(b)}</p>
       <div class="qr-img">${qrSVG(url)}</div>
-      <p class="qr-guide">${live ? '휴대폰 카메라로 찍고 <b>번호표</b>를 받으세요.<br>차례가 되면 휴대폰으로 알려 드려요.' : '휴대폰 카메라로 찍고 <b>시간을 골라 예약</b>하세요.'}</p>
+      <p class="qr-guide">${live ? '휴대폰 카메라로 찍고 <b>번호표</b>를 받으세요.<br>차례가 되면 휴대폰으로 알려 드려요.' : manual ? '휴대폰 카메라로 찍으면 <b>지금 대기 인원</b>과<br>부스 소개를 볼 수 있어요.' : '휴대폰 카메라로 찍고 <b>시간을 골라 예약</b>하세요.'}</p>
       <p class="qr-url">${esc(url)}</p>
     </div>`;
 }
@@ -1142,7 +1152,7 @@ function viewOp(tab) {
     </div>
     <div class="tabs">
       <a href="#/op/edit" class="${tab === 'edit' ? 'on' : ''}">페이지 편집</a>
-      <a href="#/op/crowd" class="${tab === 'crowd' ? 'on' : ''}">${b.type === 'reserve' ? '현황 · QR' : 'QR 줄서기'}</a>
+      <a href="#/op/crowd" class="${tab === 'crowd' ? 'on' : ''}">${b.type === 'reserve' ? '현황 · QR' : Store.isManual(b) ? '혼잡도' : 'QR 줄서기'}</a>
       ${b.type === 'reserve' ? `<a href="#/op/resv" class="${tab === 'resv' ? 'on' : ''}">예약 관리</a>` : ''}
     </div>
     <div id="op-body"></div>`;
@@ -1298,46 +1308,14 @@ function opEdit(root, b) {
   };
 }
 
-// ----- QR 줄서기 운영 (당일 부스) -----
-//   혼잡도는 대기 인원으로 자동 계산되므로, 운영자는 "호출"과 "입장 확인"만 하면 됩니다.
-function opQueue(root, b) {
-  if (!Store.hasQueue(b.id)) {
-    root.innerHTML = '<p class="empty">줄서기를 준비하는 중…</p>';
-    Store.ensureQueue(b.id).then(() => viewOp('crowd'));
-    return;
-  }
+// ----- 당일 부스 운영 (혼잡도 방식 선택 + QR 줄서기 / 직접 입력) -----
+//   'qr'     : QR 번호표 대기 인원으로 혼잡도 자동 계산. 운영자가 혼잡도를 고정하거나 대기 인원을 보정할 수 있음
+//   'manual' : QR 줄서기 없이, 운영자가 혼잡도와 대기 인원을 직접 입력
+function ticketTables(called, waiting) {
   const s = Store.db.settings;
-  const q = Store.queue(b.id);
-  const all = Store.ticketsOf(b.id);
-  const waiting = all.filter(t => t.status === 'waiting');
-  const called = all.filter(t => t.status === 'called').sort((x, y) => x.calledAt - y.calledAt);
-  const cnt = (st) => all.filter(t => t.status === st).length;
-  const c = crowdOf(b);
   const graceMs = s.callGraceMin * 60000;
   const walkin = (t) => (t.source === 'walkin' ? ' <span class="badge gray">현장</span>' : '');
-
-  root.innerHTML = `
-    <div class="stats">
-      <div class="stat hl"><small>지금 대기</small><b>${waiting.length}</b><small>예상 ${Store.waitMinutes(b)}분</small></div>
-      <div class="stat"><small>혼잡도 (자동)</small><b style="color:${c.color}">${c.label}</b><small>${s.queueNormal}명↑ 보통 · ${s.queueBusy}명↑ 혼잡</small></div>
-      <div class="stat"><small>호출 번호</small><b>${q.nowServing || '-'}</b><small>다음 ${waiting[0] ? waiting[0].no + '번' : '없음'}</small></div>
-      <div class="stat"><small>오늘 입장</small><b>${cnt('entered')}</b><small>노쇼 ${cnt('noshow')} · 취소 ${cnt('cancelled')}</small></div>
-    </div>
-    ${Store.isStale(b) ? `<p class="warn">⚠️ 대기자가 있는데 ${timeAgo(q.lastCallAt)} 이후로 호출이 없어요. 관리자 화면에도 경고가 떠요.</p>` : ''}
-    ${q.open === false ? '<p class="warn">⛔ 줄서기 접수를 마감한 상태예요. 새 손님은 번호표를 받을 수 없어요.</p>' : ''}
-
-    <div class="panel call-panel">
-      <h2>📣 손님 호출</h2>
-      <button class="btn call-btn" data-call="1" ${waiting.length ? '' : 'disabled'}>
-        다음 손님 호출${waiting[0] ? ` · <b>${waiting[0].no}번</b> ${esc(waiting[0].name)}` : ''}
-      </button>
-      <div class="row call-many">
-        <input type="number" id="call-n" min="2" max="30" value="${ui.callN || 4}">
-        <button class="btn ghost" data-call="n" ${waiting.length > 1 ? '' : 'disabled'}>명 한꺼번에 호출 (단체 체험용)</button>
-      </div>
-      <p class="small muted">호출하면 손님 휴대폰에 알림이 떠요. ${s.callGraceMin}분 안에 오지 않으면 자동으로 노쇼 처리돼요.</p>
-    </div>
-
+  return `
     <div class="panel">
       <h2>🔔 호출한 손님 <span class="badge">${called.length}</span></h2>
       ${called.length ? `<table class="tbl qtbl">
@@ -1348,49 +1326,182 @@ function opQueue(root, b) {
             <button class="btn ghost sm" data-t="${t.id}" data-st="called">재호출</button>
             <button class="btn ghost sm" data-t="${t.id}" data-st="noshow">노쇼</button></td>
         </tr>`).join('')}
-      </table>` : '<p class="small muted">호출한 손님이 없어요. 자리가 나면 위의 호출 버튼을 누르세요.</p>'}
+      </table>` : '<p class="small muted">호출한 손님이 없어요.</p>'}
     </div>
-
     <div class="panel">
       <h2>⏳ 대기 명단 <span class="badge">${waiting.length}</span></h2>
       ${waiting.length ? `<table class="tbl qtbl">
         <tr><th>번호</th><th>이름 · 발급</th><th></th></tr>
         ${waiting.map(t => `<tr>
           <td><b class="tno">${t.no}</b></td><td>${esc(t.name)}${walkin(t)}<br><small class="muted">${timeAgo(t.createdAt)} 발급</small></td>
-          <td class="acts"><button class="btn ghost sm" data-t="${t.id}" data-st="cancelled">빼기</button></td>
+          <td class="acts"><button class="btn ghost sm" data-t="${t.id}" data-st="called">호출</button> <button class="btn ghost sm" data-t="${t.id}" data-st="cancelled">빼기</button></td>
         </tr>`).join('')}
       </table>` : '<p class="small muted">기다리는 손님이 없어요.</p>'}
-    </div>
+    </div>`;
+}
+const counterHTML = (attr, id, value, min) => `
+  <div class="counter">
+    <button data-${attr}="-5">-5</button><button data-${attr}="-1">-1</button>
+    <input type="number" id="${id}" ${min !== undefined ? `min="${min}"` : ''} value="${value}">
+    <button data-${attr}="1">+1</button><button data-${attr}="5">+5</button>
+  </div>`;
+const LEVELS = ['free', 'normal', 'busy'];
 
-    <div class="panel">
-      <h2>✍️ 현장 등록</h2>
-      <p class="small muted">휴대폰이 없거나 QR을 찍기 어려운 손님은 여기서 번호표를 대신 받아 주세요.</p>
-      <form class="row" id="walkin">
-        <input class="grow" name="name" maxlength="10" placeholder="손님 이름" required autocomplete="off">
-        <button class="btn">번호 발급</button>
-      </form>
-    </div>
+function opQueue(root, b) {
+  if (!Store.hasQueue(b.id)) {
+    root.innerHTML = '<p class="empty">줄서기를 준비하는 중…</p>';
+    Store.ensureQueue(b.id).then(() => viewOp('crowd'));
+    return;
+  }
+  const s = Store.db.settings;
+  const manual = Store.isManual(b);
+  const q = Store.queue(b.id);
+  const all = Store.ticketsOf(b.id);
+  const waiting = all.filter(t => t.status === 'waiting');
+  const called = all.filter(t => t.status === 'called').sort((x, y) => x.calledAt - y.calledAt);
+  const cnt = (st) => all.filter(t => t.status === st).length;
+  const c = crowdOf(b);
+  const adj = Number(b.waitAdjust) || 0;
+  const override = b.crowdOverride && CROWD[b.crowdOverride] ? b.crowdOverride : '';
+  const sign = (n) => (n > 0 ? '+' + n : String(n));
 
+  const modePanel = `
+    <div class="panel mode-panel">
+      <h2>🧭 혼잡도를 어떻게 정할까요?</h2>
+      <div class="type-pick">
+        <label class="${manual ? '' : 'on'}"><input type="radio" name="cmode" value="qr" ${manual ? '' : 'checked'}>
+          <b>📱 QR 줄서기로 자동</b><small>관람객이 QR로 번호표를 받고, 대기 인원으로 혼잡도가 자동으로 정해져요. 필요하면 직접 고칠 수도 있어요.</small></label>
+        <label class="${manual ? 'on' : ''}"><input type="radio" name="cmode" value="manual" ${manual ? 'checked' : ''}>
+          <b>✋ 직접 입력</b><small>번호표 없이 부스 앞에 줄을 서요. 운영자가 혼잡도와 대기 인원을 직접 눌러 정해요.</small></label>
+      </div>
+    </div>`;
+
+  const runPanel = (extra = '') => `
     <div class="panel">
-      <h2>⚙️ 줄 운영</h2>
+      <h2>⚙️ 운영</h2>
       <div class="row wrap">
-        <button class="btn ${q.open === false ? '' : 'ghost'}" id="q-open">${q.open === false ? '줄서기 접수 다시 열기' : '줄서기 접수 마감'}</button>
+        ${extra}
         <button class="btn ghost" id="stop">${b.stopped ? '⚫ 운영 재개' : '⚫ 일시 중단'}</button>
       </div>
       <label class="inline">1명(팀)당 처리 시간 <input type="number" id="mpp" min="1" max="60" value="${b.minPerPerson}"> 분</label>
-      <p class="small muted">관람객에게 보이는 예상 대기 = 대기 인원 × 처리 시간. 혼잡도는 대기 인원으로 자동으로 바뀌어요.</p>
-    </div>
+      <p class="small muted">관람객에게 보이는 예상 대기 = 대기 인원 × 처리 시간</p>
+    </div>`;
 
-    ${shortNoticePanel(b)}
-    ${qrPanel(b)}`;
+  if (manual) {
+    // ---------- 직접 입력 ----------
+    const liveLeft = waiting.length + called.length;
+    root.innerHTML = `
+      ${modePanel}
+      <div class="stats">
+        <div class="stat hl"><small>지금 대기</small><b>${Store.waitingOf(b)}</b><small>예상 ${Store.waitMinutes(b)}분</small></div>
+        <div class="stat"><small>혼잡도 (직접)</small><b style="color:${c.color}">${c.label}</b><small>관람객에게 보이는 값</small></div>
+        <div class="stat"><small>마지막 업데이트</small><b class="sm-num">${timeAgo(b.crowdUpdatedAt)}</b><small>${s.staleMin}분 넘으면 경고</small></div>
+      </div>
+      ${Store.isStale(b) ? `<p class="warn">⚠️ ${timeAgo(b.crowdUpdatedAt)} 이후 혼잡도를 바꾸지 않았어요. 지금 상황에 맞게 한 번 눌러 주세요!</p>` : ''}
+
+      <div class="panel">
+        <h2>지금 우리 부스 상황은?</h2>
+        <div class="crowd-btns three">
+          ${LEVELS.map(k => `<button class="crowd-btn ${!b.stopped && b.crowd === k ? 'on' : ''}" data-level="${k}" style="--c:${CROWD[k].color}">${CROWD[k].icon}<b>${CROWD[k].label}</b></button>`).join('')}
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>대기 인원</h2>
+        ${counterHTML('w', 'waiting', Store.waitingOf(b), 0)}
+        <p class="small muted">대기 인원을 바꾸면 혼잡도도 자동으로 맞춰져요 (${s.queueNormal}명↑ 보통 · ${s.queueBusy}명↑ 혼잡). 혼잡도 버튼을 누르면 그 값으로 바뀌어요.</p>
+      </div>
+
+      ${liveLeft ? `<p class="warn small">📱 QR 방식일 때 받은 번호표가 ${liveLeft}장 남아 있어요. 아래에서 호출·입장 처리해 마무리해 주세요. (새 번호표는 발급되지 않아요)</p>${ticketTables(called, waiting)}` : ''}
+      ${runPanel()}
+      ${shortNoticePanel(b)}
+      ${qrPanel(b)}`;
+  } else {
+    // ---------- QR 줄서기 (자동 + 직접 고치기) ----------
+    const auto = CROWD[Store.levelOf(Store.waitingOf(b))];
+    root.innerHTML = `
+      ${modePanel}
+      <div class="stats">
+        <div class="stat hl"><small>지금 대기</small><b>${Store.waitingOf(b)}</b><small>QR ${waiting.length}명${adj ? ` · 보정 ${sign(adj)}` : ''} · 예상 ${Store.waitMinutes(b)}분</small></div>
+        <div class="stat"><small>혼잡도 ${override ? '(직접 고정)' : '(자동)'}</small><b style="color:${c.color}">${c.label}</b><small>${s.queueNormal}명↑ 보통 · ${s.queueBusy}명↑ 혼잡</small></div>
+        <div class="stat"><small>호출 번호</small><b>${q.nowServing || '-'}</b><small>다음 ${waiting[0] ? waiting[0].no + '번' : '없음'}</small></div>
+        <div class="stat"><small>오늘 입장</small><b>${cnt('entered')}</b><small>노쇼 ${cnt('noshow')} · 취소 ${cnt('cancelled')}</small></div>
+      </div>
+      ${Store.isStale(b) ? `<p class="warn">⚠️ 대기자가 있는데 ${timeAgo(q.lastCallAt)} 이후로 호출이 없어요. 관리자 화면에도 경고가 떠요.</p>` : ''}
+      ${q.open === false ? '<p class="warn">⛔ 줄서기 접수를 마감한 상태예요. 새 손님은 번호표를 받을 수 없어요.</p>' : ''}
+
+      <div class="panel call-panel">
+        <h2>📣 손님 호출</h2>
+        <button class="btn call-btn" data-call="1" ${waiting.length ? '' : 'disabled'}>
+          다음 손님 호출${waiting[0] ? ` · <b>${waiting[0].no}번</b> ${esc(waiting[0].name)}` : ''}
+        </button>
+        <div class="row call-many">
+          <input type="number" id="call-n" min="2" max="30" value="${ui.callN || 4}">
+          <button class="btn ghost" data-call="n" ${waiting.length > 1 ? '' : 'disabled'}>명 한꺼번에 호출 (단체 체험용)</button>
+        </div>
+        <p class="small muted">호출하면 손님 휴대폰에 알림이 떠요. ${s.callGraceMin}분 안에 오지 않으면 자동으로 노쇼 처리돼요.</p>
+      </div>
+
+      <div class="panel adjust-panel">
+        <h2>✏️ 혼잡도 직접 고치기</h2>
+        <p class="small muted">자동 계산: <b style="color:${auto.color}">${auto.label}</b>${override ? ` → 지금은 <b style="color:${CROWD[override].color}">${CROWD[override].label}</b>(으)로 고정했어요. 대기 인원이 바뀌어도 그대로예요.` : ' · 실제 상황과 다르면 아래에서 고쳐 주세요.'}</p>
+        <div class="crowd-btns">
+          ${LEVELS.map(k => `<button class="crowd-btn ${override === k ? 'on' : ''}" data-ov="${k}" style="--c:${CROWD[k].color}">${CROWD[k].icon}<b>${CROWD[k].label}</b></button>`).join('')}
+          <button class="crowd-btn ${override ? '' : 'on'}" data-ov="" style="--c:var(--slate-deep)">🔄<b>자동</b></button>
+        </div>
+        <h3 class="small-head">대기 인원 보정 <span class="muted small">(지금 ${sign(adj)}명)</span></h3>
+        ${counterHTML('adj', 'adj', adj)}
+        <p class="small muted">QR 없이 줄 선 사람은 <b>+</b>, 번호표만 받고 떠난 사람은 <b>−</b>로 맞춰 주세요. 관람객에게 보이는 대기 = QR 대기 ${waiting.length}명 ${sign(adj)} = <b>${Store.waitingOf(b)}명</b></p>
+      </div>
+
+      ${ticketTables(called, waiting)}
+
+      <div class="panel">
+        <h2>✍️ 현장 등록</h2>
+        <p class="small muted">휴대폰이 없거나 QR을 찍기 어려운 손님은 여기서 번호표를 대신 받아 주세요.</p>
+        <form class="row" id="walkin">
+          <input class="grow" name="name" maxlength="10" placeholder="손님 이름" required autocomplete="off">
+          <button class="btn">번호 발급</button>
+        </form>
+      </div>
+      ${runPanel(`<button class="btn ${q.open === false ? '' : 'ghost'}" id="q-open">${q.open === false ? '줄서기 접수 다시 열기' : '줄서기 접수 마감'}</button>`)}
+      ${shortNoticePanel(b)}
+      ${qrPanel(b)}`;
+  }
 
   const done = (msg, type) => { if (msg) toast(msg, type); viewOp('crowd'); };
+  const on = (sel, fn) => { const el = document.getElementById(sel); if (el) fn(el); };
+
+  // 방식 바꾸기
+  root.querySelectorAll('input[name=cmode]').forEach(r => r.onchange = () => {
+    const to = r.value;
+    const msg = to === 'manual'
+      ? '직접 입력으로 바꿀까요?\n\n· 관람객은 더 이상 QR 번호표를 받을 수 없고, 부스 앞에 직접 줄을 서요.\n· 지금 보이는 대기 인원과 혼잡도를 그대로 이어받아요.\n· 이미 받은 번호표는 남아 있어 호출·입장 처리할 수 있어요.'
+      : 'QR 줄서기로 바꿀까요?\n\n· 관람객이 QR로 번호표를 받고, 대기 인원으로 혼잡도가 자동으로 정해져요.\n· 필요하면 "혼잡도 직접 고치기"로 언제든 고칠 수 있어요.';
+    if (!confirm(msg)) return viewOp('crowd');
+    Store.setCrowdMode(b.id, to);
+    renderTabbar('op', '/op/crowd');   // 메뉴 이름(QR 줄서기 ↔ 혼잡도)도 바로 바꿈
+    done(to === 'manual' ? '직접 입력 방식으로 바꿨어요' : 'QR 줄서기 방식으로 바꿨어요');
+  });
+
+  // 직접 입력
+  root.querySelectorAll('[data-level]').forEach(btn => btn.onclick = () => { Store.setCrowd(b.id, { crowd: btn.dataset.level, stopped: false }); done('혼잡도를 바꿨어요'); });
+  const setWaiting = (w) => { w = Math.max(0, Math.round(w) || 0); Store.setCrowd(b.id, { waiting: w, crowd: Store.levelOf(w) }); done(`대기 ${w}명`); };
+  root.querySelectorAll('[data-w]').forEach(btn => btn.onclick = () => setWaiting(Store.waitingOf(b) + Number(btn.dataset.w)));
+  if (manual) on('waiting', el => el.onchange = () => setWaiting(Number(el.value)));
+
+  // QR 방식에서 고치기
+  root.querySelectorAll('[data-ov]').forEach(btn => btn.onclick = () => {
+    Store.setCrowdOverride(b.id, btn.dataset.ov);
+    done(btn.dataset.ov ? `혼잡도를 '${CROWD[btn.dataset.ov].label}'(으)로 고정했어요` : '혼잡도를 자동 계산으로 되돌렸어요');
+  });
+  root.querySelectorAll('[data-adj]').forEach(btn => btn.onclick = () => { Store.setWaitAdjust(b.id, adj + Number(btn.dataset.adj)); done('대기 인원을 보정했어요'); });
+  if (!manual) on('adj', el => el.onchange = () => { Store.setWaitAdjust(b.id, el.value); done('대기 인원을 보정했어요'); });
+
+  // 번호표 (호출 · 입장 · 노쇼 · 빼기)
   root.querySelectorAll('[data-call]').forEach(btn => btn.onclick = async () => {
     let n = 1;
-    if (btn.dataset.call === 'n') {
-      n = Math.max(2, Math.min(30, Number(document.getElementById('call-n').value) || 2));
-      ui.callN = n;
-    }
+    if (btn.dataset.call === 'n') { n = Math.max(2, Math.min(30, Number(document.getElementById('call-n').value) || 2)); ui.callN = n; }
     btn.disabled = true;
     const res = await Store.callNext(b.id, n);
     if (!res.ok) return done(res.msg, 'err');
@@ -1401,23 +1512,23 @@ function opQueue(root, b) {
     if (st === 'cancelled' && !confirm(`${t.no}번 ${t.name}님을 대기 명단에서 뺄까요?`)) return;
     btn.disabled = true;
     if (!(await Store.setTicketStatus(t.id, st))) return;
-    done({ entered: `${t.no}번 입장 처리했어요`, called: `${t.no}번 다시 호출했어요`, noshow: `${t.no}번 노쇼 처리했어요`, cancelled: `${t.no}번을 뺐어요` }[st]);
+    done({ entered: `${t.no}번 입장 처리했어요`, called: `${t.no}번 호출했어요`, noshow: `${t.no}번 노쇼 처리했어요`, cancelled: `${t.no}번을 뺐어요` }[st]);
   });
-  document.getElementById('walkin').onsubmit = async (e) => {
+  on('walkin', f => f.onsubmit = async (e) => {
     e.preventDefault();
     const res = await Store.joinQueue(b.id, e.target.name.value, 'walkin');
     if (!res.ok) return toast(res.msg, 'err');
     alert(`${res.ticket.name}님 번호는 ${res.ticket.no}번입니다.\n\n손님께 번호를 알려 주시고, 호출하면 부스 앞에서 불러 주세요.`);
     done();
-  };
-  document.getElementById('q-open').onclick = () => {
+  });
+  on('q-open', el => el.onclick = () => {
     const open = q.open === false;
     if (!open && !confirm('줄서기 접수를 마감할까요? 이미 받은 번호표는 그대로 유지돼요.')) return;
     Store.setQueueOpen(b.id, open);
     done(open ? '줄서기 접수를 다시 열었어요' : '줄서기 접수를 마감했어요');
-  };
-  document.getElementById('stop').onclick = () => { Store.setCrowd(b.id, { stopped: !b.stopped }); done(b.stopped ? '운영을 재개했어요' : '운영을 잠시 멈췄어요'); };
-  document.getElementById('mpp').onchange = (e) => { Store.setCrowd(b.id, { minPerPerson: Math.max(1, Number(e.target.value) || 1) }); done('처리 시간을 바꿨어요'); };
+  });
+  on('stop', el => el.onclick = () => { Store.setCrowd(b.id, { stopped: !b.stopped }); done(b.stopped ? '운영을 재개했어요' : '운영을 잠시 멈췄어요'); });
+  on('mpp', el => el.onchange = () => { Store.setCrowd(b.id, { minPerPerson: Math.max(1, Number(el.value) || 1) }); done('처리 시간을 바꿨어요'); });
   bindShortNotice(root, b);
   bindQrPanel(root, b);
 }
@@ -1639,7 +1750,9 @@ function adDash(root) {
   const alerts = [
     ...pending.map(b => `<li>📝 <b>${esc(b.name)}</b> 페이지 승인 대기 <a href="#/admin/booths">처리 →</a></li>`),
     ...stopped.map(b => `<li>⚫ <b>${esc(b.name)}</b> 운영 중단 중</li>`),
-    ...stale.map(b => `<li>⏰ <b>${esc(b.name)}</b> 대기 ${Store.waitingOf(b)}명인데 ${timeAgo(Store.queue(b.id).lastCallAt)} 이후 호출 없음 (운영자 확인 필요)</li>`),
+    ...stale.map(b => Store.isManual(b)
+      ? `<li>⏰ <b>${esc(b.name)}</b> 혼잡도를 ${timeAgo(b.crowdUpdatedAt)} 이후 바꾸지 않음 (직접 입력 · 운영자 확인 필요)</li>`
+      : `<li>⏰ <b>${esc(b.name)}</b> 대기 ${Store.waitingOf(b)}명인데 ${timeAgo(Store.queue(b.id).lastCallAt)} 이후 호출 없음 (운영자 확인 필요)</li>`),
     ...busy.map(b => `<li>🔴 <b>${esc(b.name)}</b> 혼잡 ${b.type === 'reserve' ? '· 예약 거의 마감' : `· 대기 ${Store.waitingOf(b)}명`}</li>`),
   ];
 
@@ -1702,7 +1815,7 @@ function adBooths(root) {
     <div class="panel scroll-x">
       <h2>전체 부스 ${list.length}개</h2>
       ${list.length ? `<table class="tbl">
-        <tr><th>부스</th><th>유형</th><th>위치</th><th>혼잡도</th><th>대기/잔여</th><th>최근 호출</th><th>예약·번호표(입장/노쇼)</th><th>상태</th><th>관리</th></tr>
+        <tr><th>부스</th><th>유형</th><th>위치</th><th>혼잡도</th><th>혼잡도 방식</th><th>대기/잔여</th><th>최근 갱신</th><th>예약·번호표(입장/노쇼)</th><th>상태</th><th>관리</th></tr>
         ${list.map(b => {
           const rs = Store.resvOfBooth(b.id), tk = Store.ticketsOf(b.id);
           const c = (st) => rs.filter(r => r.status === st).length;
@@ -1712,9 +1825,12 @@ function adBooths(root) {
             <td><a href="#/booth/${b.id}">${b.emoji} ${esc(b.name)}</a><br><small class="muted">${esc(b.club)}</small></td>
             <td>${b.type === 'reserve' ? '예약' : '당일'}</td>
             <td>${locText(b)}</td>
-            <td>${crowdBadge(b)}</td>
+            <td>${crowdBadge(b)}${b.type !== 'reserve' && !Store.isManual(b) && b.crowdOverride ? '<br><small class="muted">운영자 고정</small>' : ''}</td>
+            <td>${b.type === 'reserve' ? '<small class="muted">예약률 자동</small>' : `<select class="mode-sel" data-mode="${b.id}">
+                <option value="qr" ${Store.isManual(b) ? '' : 'selected'}>📱 QR 자동</option>
+                <option value="manual" ${Store.isManual(b) ? 'selected' : ''}>✋ 직접 입력</option></select>`}</td>
             <td>${b.type === 'reserve' ? `잔여 ${Store.remaining(b.id)}` : `${Store.waitingOf(b)}명`}</td>
-            <td class="${Store.isStale(b) ? 'red' : ''}">${b.type === 'reserve' ? '-' : lq ? timeAgo(lq) : '-'}</td>
+            <td class="${Store.isStale(b) ? 'red' : ''}">${b.type === 'reserve' ? '-' : Store.isManual(b) ? timeAgo(b.crowdUpdatedAt) : lq ? timeAgo(lq) : '-'}</td>
             <td>${b.type === 'reserve' ? `예약 ${c('reserved') + c('checked')} (${c('checked')}/${c('noshow')})` : `번호표 ${tk.length} (${tc('entered')}/${tc('noshow')})`}</td>
             <td><span class="badge status-${b.status}">${statusLabel(b.status)}</span></td>
             <td class="nowrap">
@@ -1748,6 +1864,14 @@ function adBooths(root) {
     viewAdmin('booths');
   };
 
+  root.querySelectorAll('[data-mode]').forEach(sel => sel.onchange = () => {
+    const b = Store.booth(sel.dataset.mode);
+    const label = sel.value === 'manual' ? '직접 입력' : 'QR 줄서기 자동';
+    if (!confirm(`'${b.name}'의 혼잡도 방식을 '${label}'(으)로 바꿀까요?\n운영자 화면에도 바로 반영돼요.`)) { sel.value = Store.isManual(b) ? 'manual' : 'qr'; return; }
+    Store.setCrowdMode(b.id, sel.value);
+    toast(`'${b.name}' → ${label}`);
+    viewAdmin('booths');
+  });
   root.querySelectorAll('[data-act]').forEach(btn => btn.onclick = async () => {
     const b = Store.booth(btn.dataset.id), act = btn.dataset.act;
     if (act === 'approve') Store.updateBooth(b.id, { status: 'approved' });
@@ -2363,6 +2487,7 @@ function renderTabbar(mode, path) {
     const s = getSession(), b = s && Store.booth(s.boothId);
     if (!b || b.type !== 'reserve') items = items.filter(i => i[2] !== '예약');
     else items = items.map(i => (i[2] === '줄서기' ? [i[0], i[1], '현황', i[3]] : i));
+    if (b && Store.isManual(b)) items = items.map(i => (i[2] === '줄서기' ? [i[0], i[1], '혼잡도', i[3]] : i));
   }
   document.body.classList.toggle('mode-many', items.length > 4);   // 메뉴가 많으면 휴대폰 상단 메뉴를 왼쪽 정렬 + 가로 스크롤
   tabbar.innerHTML = items.map(([href, ic, label, re]) => `<a href="${href}" class="${re.test(path) ? 'on' : ''}">${icon(ic)}${label}</a>`).join('');
