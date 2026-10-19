@@ -1209,6 +1209,47 @@ const Store = (() => {
     return issueAccount(b.id, 'booth' + b.id.replace(/^b/, ''), OP_DEFAULT_PW);
   }
 
+  // ---------- 체험용 부스 (관리 방식 확인용, demo: true 표시 → 한 번에 지울 수 있음) ----------
+  const demoBooths = () => db.booths.filter(b => b.demo);
+  async function addDemoBooths() {
+    if (demoBooths().length) throw new Error('체험용 부스가 이미 있어요. 먼저 지운 뒤 다시 만드세요.');
+    const free = freeRooms();
+    const take = () => free.length ? [free.shift()] : [];
+    const info = (how, extra = '') => ({ type: 'info', title: '운영 정보', body: `운영 시간: 10:00 ~ 15:00\n입장 방법: ${how}${extra}` });
+    const specs = [
+      { club: '[체험] 마술동아리 미라클', name: '[체험] 예약 부스 · 마술 공연', emoji: '🎩', type: 'reserve', locations: take(),
+        patch: { themes: ['show'], color: '#7c3aed', summary: '예약 부스 체험용 — 날짜·시간·인원·전화번호로 예약해 보세요',
+          blocks: [{ type: 'text', title: '이 부스로 확인할 것', body: '관람객: 날짜 → 시간 → 인원·전화번호 예약\n운영자(demo01): 예약자 명단, 입장·노쇼 처리, 회차 정원 조절\n관리자: 예약 탭에서 마감·초기화' }, info('앱에서 예약 후 예약번호 제시')] } },
+      { club: '[체험] 다트동아리 불스아이', name: '[체험] 당일 부스 · QR 자동', emoji: '🎯', type: 'live', locations: take(),
+        patch: { themes: ['game'], color: '#0891b2', summary: '당일·QR 자동 체험용 — QR 줄서기 인원으로 혼잡도가 저절로 바뀌어요', crowdMode: 'qr',
+          blocks: [{ type: 'text', title: '이 부스로 확인할 것', body: '관람객: 부스 QR로 번호표 받기\n운영자(demo02): 다음 번호 호출, 입장·노쇼 처리, 혼잡도 고정·대기 인원 보정\n관리자: QR 코드 탭에서 이 부스 QR 인쇄·다시 만들기' }, info('QR 줄서기')] } },
+      { club: '[체험] 미술동아리 팔레트', name: '[체험] 당일 부스 · 직접 입력', emoji: '🎨', type: 'live', locations: take(),
+        patch: { themes: ['exp'], color: '#db2777', summary: '당일·직접 입력 체험용 — 운영자가 혼잡도와 대기 인원을 직접 적어요',
+          crowdMode: 'manual', crowd: 'busy', waiting: 12, crowdUpdatedAt: now(),
+          blocks: [{ type: 'text', title: '이 부스로 확인할 것', body: '운영자(demo03): 혼잡도(여유·보통·혼잡)와 대기 인원 직접 입력\n관리자: 부스 탭 "혼잡도 방식"에서 QR 자동 ↔ 직접 입력 바꾸기' }, info('현장 줄서기 (혼잡도는 운영자가 입력)')] } },
+      { club: '[체험] 과학동아리 뉴턴', name: '[체험] 여러 교실 · 승인 대기', emoji: '🔬', type: 'live', locations: [...take(), ...take()],
+        patch: { themes: ['exhibit', 'exp'], color: '#16a34a', summary: '여러 교실을 쓰는 부스 체험용 — 아직 승인 대기라 관람객에게는 안 보여요', status: 'pending',
+          blocks: [{ type: 'text', title: '이 부스로 확인할 것', body: '관리자: 부스 탭에서 "승인·공개" 누르기 → 관람객 화면·지도에 두 교실 모두 표시\n관리자: "위치 바꾸기"로 교실 추가·삭제' }, info('QR 줄서기')] } },
+      { club: '[체험] 밴드동아리 앰프', name: '[체험] 위치 미정 · 버스킹', emoji: '🎸', type: 'live', locations: [],
+        patch: { themes: ['show'], color: '#ea580c', summary: '위치 미정 체험용 — 지도에는 안 나오지만 부스 목록·페이지는 보여요',
+          blocks: [{ type: 'text', title: '이 부스로 확인할 것', body: '관람객: 층별 지도에는 없고, 테마별·동아리별 목록과 부스 페이지에는 있음\n관리자: "위치 바꾸기"에서 교실을 정하면 지도에 나타남' }, info('QR 줄서기', '\n위치: 미정 (정해지면 공지)')] } },
+    ];
+    const made = [];
+    for (let i = 0; i < specs.length; i++) {
+      const s = specs[i];
+      const b = await addBooth({ club: s.club, name: s.name, emoji: s.emoji, type: s.type, locations: s.locations });
+      await updateBooth(b.id, { demo: true, status: 'approved', ...s.patch });
+      const acc = await issueAccount(b.id, 'demo0' + (i + 1), '1234');
+      made.push({ booth: booth(b.id).name, id: acc.id, pw: acc.pw });
+    }
+    return made;
+  }
+  async function removeDemoBooths() {
+    const list = demoBooths();
+    for (const b of list) await deleteBooth(b.id);
+    return list.length;
+  }
+
   // 계정 없는 부스에 운영자 계정 일괄 발급
   async function issueMissingAccounts() {
     const issued = [];
@@ -1468,7 +1509,7 @@ const Store = (() => {
     loginGuard, securityLog, clearSecurityLog, blockedList, isBlocked, blockDevice, unblockDevice, riskByDevice, autoBlock, logSecurity, health, setHealth, SEC,
     session: getSession, accounts, login, logout, changePassword, isSetupNeeded, setupAdmin, signupStudent,
     createOpAccount, updateAccount, deleteAccount, STUDENT_RE,
-    roomUsage, freeRooms, addBooth, setLocations, deleteBooth, createBoothAccount, issueMissingAccounts, reissueAccount, setSettings, reset,
+    roomUsage, freeRooms, addBooth, setLocations, deleteBooth, demoBooths, addDemoBooths, removeDemoBooths, createBoothAccount, issueMissingAccounts, reissueAccount, setSettings, reset,
     heartbeat, presence, exportCSV, exportData, importData, snapshot, snapshots,
   };
 })();

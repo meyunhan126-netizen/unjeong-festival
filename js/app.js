@@ -1912,6 +1912,18 @@ function adBooths(root) {
       </form>`}
     </details>
 
+    <div class="panel demo-panel">
+      <h2>🧪 체험용 부스</h2>
+      ${Store.demoBooths().length ? `
+        <p class="small muted">체험용 부스 ${Store.demoBooths().length}개가 있어요 (이름 앞에 [체험]). 확인이 끝나면 꼭 지워 주세요.</p>
+        <table class="tbl"><tr><th>부스</th><th>운영자 아이디</th><th>비밀번호</th></tr>
+          ${Store.demoBooths().map(b => `<tr><td><a href="#/booth/${b.id}">${b.emoji} ${esc(b.name)}</a></td><td>${Store.accounts().filter(a => a.role === 'op' && a.boothId === b.id).map(a => esc(a.id)).join(', ') || '-'}</td><td>1234</td></tr>`).join('')}
+        </table>
+        <button class="btn danger sm" id="demo-del">체험용 부스 모두 지우기</button>` : `
+        <p class="small muted">관리 방식을 확인할 수 있게 유형이 다른 부스 5개를 만들어요: 예약 · 당일 QR 자동 · 당일 직접 입력 · 여러 교실(승인 대기) · 위치 미정. 각 부스에 운영자 계정(demo01~05 / 1234)도 함께 만들어요. 나중에 버튼 한 번으로 모두 지울 수 있어요.</p>
+        <button class="btn sm" id="demo-add">체험용 부스 5개 만들기</button>`}
+    </div>
+
     ${sel ? `
     <div class="panel loc-admin" id="loc-admin">
       <h2>📍 ${sel.emoji} ${esc(sel.name)} · 위치 바꾸기</h2>
@@ -1970,6 +1982,25 @@ function adBooths(root) {
         toast('부스를 추가했어요');
       }
     } catch (err) { toast('추가 실패: ' + err.message, 'err'); }
+    viewAdmin('booths');
+  };
+
+  // 체험용 부스 만들기 / 지우기
+  const demoAdd = document.getElementById('demo-add');
+  if (demoAdd) demoAdd.onclick = async () => {
+    demoAdd.disabled = true; demoAdd.textContent = '만드는 중… (10초쯤 걸려요)';
+    try {
+      const made = await Store.addDemoBooths();
+      alert('체험용 부스 5개를 만들었어요.\n\n' + made.map(m => `${m.booth}\n  운영자 아이디 ${m.id} / 비밀번호 ${m.pw}`).join('\n\n'));
+    } catch (err) { toast('만들기 실패: ' + err.message, 'err'); }
+    viewAdmin('booths');
+  };
+  const demoDel = document.getElementById('demo-del');
+  if (demoDel) demoDel.onclick = async () => {
+    if (!confirm('[체험] 부스와 그 예약·번호표·공지·운영자 권한을 모두 지울까요?')) return;
+    demoDel.disabled = true; demoDel.textContent = '지우는 중…';
+    try { const n = await Store.removeDemoBooths(); toast(`체험용 부스 ${n}개를 지웠어요`); }
+    catch (err) { toast('지우기 실패: ' + err.message, 'err'); }
     viewAdmin('booths');
   };
 
