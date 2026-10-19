@@ -1,0 +1,988 @@
+{
+ "app": "ujhs-festival",
+ "version": 3,
+ "exportedAt": "2026-10-18T16:53:49.233Z",
+ "mode": "local",
+ "settings": {
+  "festivalName": "UJHS Festival",
+  "subtitle": "운정고등학교 동아리 발표회",
+  "heroPhotos": [],
+  "openTime": "09:30",
+  "closeTime": "16:00",
+  "graceMin": 10,
+  "maxPerPerson": 2,
+  "requireLogin": true,
+  "staleMin": 15,
+  "timeOffset": 0
+ },
+ "booths": [
+  {
+   "id": "b01",
+   "name": "사라진 교장선생님의 열쇠",
+   "club": "미스터리 연구회",
+   "emoji": "🔐",
+   "color": "#4f46e5",
+   "type": "reserve",
+   "building": "main",
+   "floor": 5,
+   "room": "탐구학습실Ⅰ",
+   "themes": [
+    "escape"
+   ],
+   "summary": "30분 안에 교장실의 비밀을 풀어라! 4~6인 팀 방탈출",
+   "cover": "",
+   "blocks": [
+    {
+     "type": "text",
+     "title": "부스 소개",
+     "body": "30분 안에 교장실의 비밀을 풀어라! 4~6인 팀 방탈출\n미스터리 연구회가 한 학기 동안 준비한 부스입니다. 많이 놀러 와 주세요!"
+    },
+    {
+     "type": "info",
+     "title": "운영 정보",
+     "body": "운영 시간: 10:00 ~ 15:00\n소요 시간: 약 30분\n입장 방법: 앱에서 예약 후 예약번호 제시\n위치: 본관 5층 탐구학습실Ⅰ"
+    },
+    {
+     "type": "notice",
+     "body": "팀원은 최대 6명까지! 늦으면 입장이 어려울 수 있어요."
+    }
+   ],
+   "status": "approved",
+   "crowd": "busy",
+   "waiting": 0,
+   "minPerPerson": 8,
+   "crowdUpdatedAt": 1792320047741,
+   "shortNotice": "",
+   "stopped": false,
+   "slotConfig": {
+    "start": "10:00",
+    "end": "15:00",
+    "interval": 30,
+    "capacity": 6
+   }
+  },
+  {
+   "id": "b02",
+   "name": "카페 운정",
+   "club": "바리스타부",
+   "emoji": "☕",
+   "color": "#92400e",
+   "type": "live",
+   "building": "main",
+   "floor": 1,
+   "room": "Wi카페(세미나실)",
+   "themes": [
+    "cafe"
+   ],
+   "summary": "동아리원이 직접 내린 핸드드립 커피와 수제 레모네이드",
+   "cover": "",
+   "blocks": [
+    {
+     "type": "text",
+     "title": "부스 소개",
+     "body": "동아리원이 직접 내린 핸드드립 커피와 수제 레모네이드\n바리스타부가 한 학기 동안 준비한 부스입니다. 많이 놀러 와 주세요!"
+    },
+    {
+     "type": "info",
+     "title": "운영 정보",
+     "body": "운영 시간: 10:00 ~ 15:00\n소요 시간: 약 2분\n입장 방법: 현장 줄서기\n위치: 본관 1층 Wi카페(세미나실)"
+    }
+   ],
+   "status": "approved",
+   "crowd": "normal",
+   "waiting": 8,
+   "minPerPerson": 1,
+   "crowdUpdatedAt": 1792319867741,
+   "shortNotice": "",
+   "stopped": false,
+   "slotConfig": null
+  },
+  {
+   "id": "b03",
+   "name": "실험실 매직쇼",
+   "club": "과학탐구반",
+   "emoji": "🧪",
+   "color": "#0891b2",
+   "type": "reserve",
+   "building": "rear",
+   "floor": 3,
+   "room": "화학실",
+   "themes": [
+    "exp",
+    "show"
+   ],
+   "summary": "액체질소 아이스크림과 코끼리 치약 실험 체험",
+   "cover": "",
+   "blocks": [
+    {
+     "type": "text",
+     "title": "부스 소개",
+     "body": "액체질소 아이스크림과 코끼리 치약 실험 체험\n과학탐구반가 한 학기 동안 준비한 부스입니다. 많이 놀러 와 주세요!"
+    },
+    {
+     "type": "info",
+     "title": "운영 정보",
+     "body": "운영 시간: 10:00 ~ 15:00\n소요 시간: 약 20분\n입장 방법: 앱에서 예약 후 예약번호 제시\n위치: 후관 3층 화학실"
+    }
+   ],
+   "status": "approved",
+   "crowd": "normal",
+   "waiting": 0,
+   "minPerPerson": 5,
+   "crowdUpdatedAt": 1792319687741,
+   "shortNotice": "",
+   "stopped": false,
+   "slotConfig": {
+    "start": "10:00",
+    "end": "15:00",
+    "interval": 20,
+    "capacity": 8
+   }
+  },
+  {
+   "id": "b04",
+   "name": "보드게임 카페",
+   "club": "보드게임부",
+   "emoji": "🎲",
+   "color": "#16a34a",
+   "type": "live",
+   "building": "main",
+   "floor": 3,
+   "room": "토론학습실Ⅰ",
+   "themes": [
+    "game"
+   ],
+   "summary": "할리갈리부터 스플렌더까지, 30종 보드게임 자유 체험",
+   "cover": "",
+   "blocks": [
+    {
+     "type": "text",
+     "title": "부스 소개",
+     "body": "할리갈리부터 스플렌더까지, 30종 보드게임 자유 체험\n보드게임부가 한 학기 동안 준비한 부스입니다. 많이 놀러 와 주세요!"
+    },
+    {
+     "type": "info",
+     "title": "운영 정보",
+     "body": "운영 시간: 10:00 ~ 15:00\n소요 시간: 약 3분\n입장 방법: 현장 줄서기\n위치: 본관 3층 토론학습실Ⅰ"
+    }
+   ],
+   "status": "approved",
+   "crowd": "free",
+   "waiting": 2,
+   "minPerPerson": 1,
+   "crowdUpdatedAt": 1792319507741,
+   "shortNotice": "",
+   "stopped": false,
+   "slotConfig": null
+  },
+  {
+   "id": "b05",
+   "name": "운정의 사계절 사진전",
+   "club": "사진부",
+   "emoji": "📷",
+   "color": "#475569",
+   "type": "live",
+   "building": "rear",
+   "floor": 5,
+   "room": "미술실",
+   "themes": [
+    "exhibit"
+   ],
+   "summary": "1년간 담은 학교 풍경 전시 + 즉석 폴라로이드 촬영",
+   "cover": "",
+   "blocks": [
+    {
+     "type": "text",
+     "title": "부스 소개",
+     "body": "1년간 담은 학교 풍경 전시 + 즉석 폴라로이드 촬영\n사진부가 한 학기 동안 준비한 부스입니다. 많이 놀러 와 주세요!"
+    },
+    {
+     "type": "info",
+     "title": "운영 정보",
+     "body": "운영 시간: 10:00 ~ 15:00\n소요 시간: 약 1분\n입장 방법: 현장 줄서기\n위치: 후관 5층 미술실"
+    }
+   ],
+   "status": "approved",
+   "crowd": "free",
+   "waiting": 0,
+   "minPerPerson": 1,
+   "crowdUpdatedAt": 1792320047741,
+   "shortNotice": "",
+   "stopped": false,
+   "slotConfig": null
+  },
+  {
+   "id": "b06",
+   "name": "미니 라이브 공연",
+   "club": "밴드부 소음",
+   "emoji": "🎸",
+   "color": "#db2777",
+   "type": "live",
+   "building": "rear",
+   "floor": 1,
+   "room": "시청각실",
+   "themes": [
+    "show"
+   ],
+   "summary": "매 정시 20분 라이브! 신청곡도 받아요",
+   "cover": "",
+   "blocks": [
+    {
+     "type": "text",
+     "title": "부스 소개",
+     "body": "매 정시 20분 라이브! 신청곡도 받아요\n밴드부 소음가 한 학기 동안 준비한 부스입니다. 많이 놀러 와 주세요!"
+    },
+    {
+     "type": "info",
+     "title": "운영 정보",
+     "body": "운영 시간: 10:00 ~ 15:00\n소요 시간: 약 1분\n입장 방법: 현장 줄서기\n위치: 후관 1층 시청각실"
+    }
+   ],
+   "status": "approved",
+   "crowd": "busy",
+   "waiting": 25,
+   "minPerPerson": 1,
+   "crowdUpdatedAt": 1792319867741,
+   "shortNotice": "",
+   "stopped": false,
+   "slotConfig": null
+  },
+  {
+   "id": "b07",
+   "name": "직접 만든 게임 체험관",
+   "club": "코딩동아리 바이트",
+   "emoji": "👾",
+   "color": "#7c3aed",
+   "type": "live",
+   "building": "rear",
+   "floor": 2,
+   "room": "컴퓨터실",
+   "themes": [
+    "game",
+    "exp"
+   ],
+   "summary": "동아리원이 직접 개발한 게임 5종을 플레이해보세요",
+   "cover": "",
+   "blocks": [
+    {
+     "type": "text",
+     "title": "부스 소개",
+     "body": "동아리원이 직접 개발한 게임 5종을 플레이해보세요\n코딩동아리 바이트가 한 학기 동안 준비한 부스입니다. 많이 놀러 와 주세요!"
+    },
+    {
+     "type": "info",
+     "title": "운영 정보",
+     "body": "운영 시간: 10:00 ~ 15:00\n소요 시간: 약 4분\n입장 방법: 현장 줄서기\n위치: 후관 2층 컴퓨터실"
+    }
+   ],
+   "status": "approved",
+   "crowd": "normal",
+   "waiting": 6,
+   "minPerPerson": 1,
+   "crowdUpdatedAt": 1792318547741,
+   "shortNotice": "",
+   "stopped": false,
+   "slotConfig": null
+  },
+  {
+   "id": "b08",
+   "name": "나만의 키링 만들기",
+   "club": "공예부",
+   "emoji": "🧶",
+   "color": "#ea580c",
+   "type": "reserve",
+   "building": "main",
+   "floor": 4,
+   "room": "2-1",
+   "themes": [
+    "exp"
+   ],
+   "summary": "레진 키링을 직접 만들어 가져가세요 (재료비 무료)",
+   "cover": "",
+   "blocks": [
+    {
+     "type": "text",
+     "title": "부스 소개",
+     "body": "레진 키링을 직접 만들어 가져가세요 (재료비 무료)\n공예부가 한 학기 동안 준비한 부스입니다. 많이 놀러 와 주세요!"
+    },
+    {
+     "type": "info",
+     "title": "운영 정보",
+     "body": "운영 시간: 10:00 ~ 15:00\n소요 시간: 약 20분\n입장 방법: 앱에서 예약 후 예약번호 제시\n위치: 본관 4층 2-1"
+    }
+   ],
+   "status": "approved",
+   "crowd": "normal",
+   "waiting": 0,
+   "minPerPerson": 5,
+   "crowdUpdatedAt": 1792319507741,
+   "shortNotice": "",
+   "stopped": false,
+   "slotConfig": {
+    "start": "10:00",
+    "end": "15:00",
+    "interval": 20,
+    "capacity": 8
+   }
+  },
+  {
+   "id": "b09",
+   "name": "쿠키 베이커리",
+   "club": "제과제빵부",
+   "emoji": "🍪",
+   "color": "#ca8a04",
+   "type": "live",
+   "building": "main",
+   "floor": 1,
+   "room": "동아리실",
+   "themes": [
+    "cafe"
+   ],
+   "summary": "갓 구운 쿠키와 머핀 판매 (1개 500원)",
+   "cover": "",
+   "blocks": [
+    {
+     "type": "text",
+     "title": "부스 소개",
+     "body": "갓 구운 쿠키와 머핀 판매 (1개 500원)\n제과제빵부가 한 학기 동안 준비한 부스입니다. 많이 놀러 와 주세요!"
+    },
+    {
+     "type": "info",
+     "title": "운영 정보",
+     "body": "운영 시간: 10:00 ~ 15:00\n소요 시간: 약 1분\n입장 방법: 현장 줄서기\n위치: 본관 1층 동아리실"
+    }
+   ],
+   "status": "approved",
+   "crowd": "busy",
+   "waiting": 15,
+   "minPerPerson": 1,
+   "crowdUpdatedAt": 1792320047741,
+   "shortNotice": "초코칩 쿠키 매진! 머핀은 아직 있어요",
+   "stopped": false,
+   "slotConfig": null
+  },
+  {
+   "id": "b10",
+   "name": "공포의 3층 복도",
+   "club": "방송부",
+   "emoji": "👻",
+   "color": "#111827",
+   "type": "reserve",
+   "building": "main",
+   "floor": 3,
+   "room": "2-8",
+   "themes": [
+    "escape",
+    "exp"
+   ],
+   "summary": "담력 테스트! 2인 1조 공포 체험 (심약자 주의)",
+   "cover": "",
+   "blocks": [
+    {
+     "type": "text",
+     "title": "부스 소개",
+     "body": "담력 테스트! 2인 1조 공포 체험 (심약자 주의)\n방송부가 한 학기 동안 준비한 부스입니다. 많이 놀러 와 주세요!"
+    },
+    {
+     "type": "info",
+     "title": "운영 정보",
+     "body": "운영 시간: 10:00 ~ 15:00\n소요 시간: 약 10분\n입장 방법: 앱에서 예약 후 예약번호 제시\n위치: 본관 3층 2-8"
+    }
+   ],
+   "status": "approved",
+   "crowd": "busy",
+   "waiting": 0,
+   "minPerPerson": 3,
+   "crowdUpdatedAt": 1792319867741,
+   "shortNotice": "",
+   "stopped": false,
+   "slotConfig": {
+    "start": "10:00",
+    "end": "15:00",
+    "interval": 20,
+    "capacity": 8
+   }
+  }
+ ],
+ "slots": [
+  {
+   "id": "s_e9dgs1y",
+   "boothId": "b01",
+   "start": "10:00",
+   "end": "10:30",
+   "capacity": 6,
+   "blocked": false,
+   "count": 0
+  },
+  {
+   "id": "s_2b510p4",
+   "boothId": "b01",
+   "start": "10:30",
+   "end": "11:00",
+   "capacity": 6,
+   "blocked": false,
+   "count": 0
+  },
+  {
+   "id": "s_2eqzdmf",
+   "boothId": "b01",
+   "start": "11:00",
+   "end": "11:30",
+   "capacity": 6,
+   "blocked": false,
+   "count": 0
+  },
+  {
+   "id": "s_129f3xb",
+   "boothId": "b01",
+   "start": "11:30",
+   "end": "12:00",
+   "capacity": 6,
+   "blocked": false,
+   "count": 0
+  },
+  {
+   "id": "s_byh9jsg",
+   "boothId": "b01",
+   "start": "12:00",
+   "end": "12:30",
+   "capacity": 6,
+   "blocked": false,
+   "count": 0
+  },
+  {
+   "id": "s_lwp8p89",
+   "boothId": "b01",
+   "start": "12:30",
+   "end": "13:00",
+   "capacity": 6,
+   "blocked": false,
+   "count": 0
+  },
+  {
+   "id": "s_grnu753",
+   "boothId": "b01",
+   "start": "13:00",
+   "end": "13:30",
+   "capacity": 6,
+   "blocked": false,
+   "count": 0
+  },
+  {
+   "id": "s_6bb38hu",
+   "boothId": "b01",
+   "start": "13:30",
+   "end": "14:00",
+   "capacity": 6,
+   "blocked": false,
+   "count": 0
+  },
+  {
+   "id": "s_hs5vrvo",
+   "boothId": "b01",
+   "start": "14:00",
+   "end": "14:30",
+   "capacity": 6,
+   "blocked": false,
+   "count": 0
+  },
+  {
+   "id": "s_kqhlprf",
+   "boothId": "b01",
+   "start": "14:30",
+   "end": "15:00",
+   "capacity": 6,
+   "blocked": false,
+   "count": 0
+  },
+  {
+   "id": "s_4z6z3dl",
+   "boothId": "b03",
+   "start": "10:00",
+   "end": "10:20",
+   "capacity": 8,
+   "blocked": false,
+   "count": 0
+  },
+  {
+   "id": "s_h2eoyof",
+   "boothId": "b03",
+   "start": "10:20",
+   "end": "10:40",
+   "capacity": 8,
+   "blocked": false,
+   "count": 0
+  },
+  {
+   "id": "s_c9za2ys",
+   "boothId": "b03",
+   "start": "10:40",
+   "end": "11:00",
+   "capacity": 8,
+   "blocked": false,
+   "count": 0
+  },
+  {
+   "id": "s_r6n0jn6",
+   "boothId": "b03",
+   "start": "11:00",
+   "end": "11:20",
+   "capacity": 8,
+   "blocked": false,
+   "count": 0
+  },
+  {
+   "id": "s_fcu9qgi",
+   "boothId": "b03",
+   "start": "11:20",
+   "end": "11:40",
+   "capacity": 8,
+   "blocked": false,
+   "count": 0
+  },
+  {
+   "id": "s_untdxli",
+   "boothId": "b03",
+   "start": "11:40",
+   "end": "12:00",
+   "capacity": 8,
+   "blocked": false,
+   "count": 0
+  },
+  {
+   "id": "s_hrph10s",
+   "boothId": "b03",
+   "start": "12:00",
+   "end": "12:20",
+   "capacity": 8,
+   "blocked": false,
+   "count": 0
+  },
+  {
+   "id": "s_ggr3vl3",
+   "boothId": "b03",
+   "start": "12:20",
+   "end": "12:40",
+   "capacity": 8,
+   "blocked": false,
+   "count": 0
+  },
+  {
+   "id": "s_zabvxod",
+   "boothId": "b03",
+   "start": "12:40",
+   "end": "13:00",
+   "capacity": 8,
+   "blocked": false,
+   "count": 0
+  },
+  {
+   "id": "s_eu3859o",
+   "boothId": "b03",
+   "start": "13:00",
+   "end": "13:20",
+   "capacity": 8,
+   "blocked": false,
+   "count": 0
+  },
+  {
+   "id": "s_o3ii92h",
+   "boothId": "b03",
+   "start": "13:20",
+   "end": "13:40",
+   "capacity": 8,
+   "blocked": false,
+   "count": 0
+  },
+  {
+   "id": "s_ohxu861",
+   "boothId": "b03",
+   "start": "13:40",
+   "end": "14:00",
+   "capacity": 8,
+   "blocked": false,
+   "count": 0
+  },
+  {
+   "id": "s_tn0jfcw",
+   "boothId": "b03",
+   "start": "14:00",
+   "end": "14:20",
+   "capacity": 8,
+   "blocked": false,
+   "count": 0
+  },
+  {
+   "id": "s_jpyoyn1",
+   "boothId": "b03",
+   "start": "14:20",
+   "end": "14:40",
+   "capacity": 8,
+   "blocked": false,
+   "count": 0
+  },
+  {
+   "id": "s_cwrpdcr",
+   "boothId": "b03",
+   "start": "14:40",
+   "end": "15:00",
+   "capacity": 8,
+   "blocked": false,
+   "count": 0
+  },
+  {
+   "id": "s_bywe5sd",
+   "boothId": "b08",
+   "start": "10:00",
+   "end": "10:20",
+   "capacity": 8,
+   "blocked": false,
+   "count": 0
+  },
+  {
+   "id": "s_wmu117p",
+   "boothId": "b08",
+   "start": "10:20",
+   "end": "10:40",
+   "capacity": 8,
+   "blocked": false,
+   "count": 0
+  },
+  {
+   "id": "s_j8a8q17",
+   "boothId": "b08",
+   "start": "10:40",
+   "end": "11:00",
+   "capacity": 8,
+   "blocked": false,
+   "count": 0
+  },
+  {
+   "id": "s_4jsmx8f",
+   "boothId": "b08",
+   "start": "11:00",
+   "end": "11:20",
+   "capacity": 8,
+   "blocked": false,
+   "count": 0
+  },
+  {
+   "id": "s_nezrf6m",
+   "boothId": "b08",
+   "start": "11:20",
+   "end": "11:40",
+   "capacity": 8,
+   "blocked": false,
+   "count": 0
+  },
+  {
+   "id": "s_tb4toi1",
+   "boothId": "b08",
+   "start": "11:40",
+   "end": "12:00",
+   "capacity": 8,
+   "blocked": false,
+   "count": 0
+  },
+  {
+   "id": "s_02uy71e",
+   "boothId": "b08",
+   "start": "12:00",
+   "end": "12:20",
+   "capacity": 8,
+   "blocked": false,
+   "count": 0
+  },
+  {
+   "id": "s_csdicnn",
+   "boothId": "b08",
+   "start": "12:20",
+   "end": "12:40",
+   "capacity": 8,
+   "blocked": false,
+   "count": 0
+  },
+  {
+   "id": "s_xgxckne",
+   "boothId": "b08",
+   "start": "12:40",
+   "end": "13:00",
+   "capacity": 8,
+   "blocked": false,
+   "count": 0
+  },
+  {
+   "id": "s_spq5rsk",
+   "boothId": "b08",
+   "start": "13:00",
+   "end": "13:20",
+   "capacity": 8,
+   "blocked": false,
+   "count": 0
+  },
+  {
+   "id": "s_tp4ublg",
+   "boothId": "b08",
+   "start": "13:20",
+   "end": "13:40",
+   "capacity": 8,
+   "blocked": false,
+   "count": 0
+  },
+  {
+   "id": "s_7xvvd5v",
+   "boothId": "b08",
+   "start": "13:40",
+   "end": "14:00",
+   "capacity": 8,
+   "blocked": false,
+   "count": 0
+  },
+  {
+   "id": "s_xii6esz",
+   "boothId": "b08",
+   "start": "14:00",
+   "end": "14:20",
+   "capacity": 8,
+   "blocked": false,
+   "count": 0
+  },
+  {
+   "id": "s_2xs6z82",
+   "boothId": "b08",
+   "start": "14:20",
+   "end": "14:40",
+   "capacity": 8,
+   "blocked": false,
+   "count": 0
+  },
+  {
+   "id": "s_wmxtuv1",
+   "boothId": "b08",
+   "start": "14:40",
+   "end": "15:00",
+   "capacity": 8,
+   "blocked": false,
+   "count": 0
+  },
+  {
+   "id": "s_x7945cs",
+   "boothId": "b10",
+   "start": "10:00",
+   "end": "10:20",
+   "capacity": 8,
+   "blocked": false,
+   "count": 0
+  },
+  {
+   "id": "s_2hzwos8",
+   "boothId": "b10",
+   "start": "10:20",
+   "end": "10:40",
+   "capacity": 8,
+   "blocked": false,
+   "count": 0
+  },
+  {
+   "id": "s_o3fype7",
+   "boothId": "b10",
+   "start": "10:40",
+   "end": "11:00",
+   "capacity": 8,
+   "blocked": false,
+   "count": 0
+  },
+  {
+   "id": "s_9b1idvu",
+   "boothId": "b10",
+   "start": "11:00",
+   "end": "11:20",
+   "capacity": 8,
+   "blocked": false,
+   "count": 0
+  },
+  {
+   "id": "s_689dlsu",
+   "boothId": "b10",
+   "start": "11:20",
+   "end": "11:40",
+   "capacity": 8,
+   "blocked": false,
+   "count": 0
+  },
+  {
+   "id": "s_u54kw6u",
+   "boothId": "b10",
+   "start": "11:40",
+   "end": "12:00",
+   "capacity": 8,
+   "blocked": false,
+   "count": 0
+  },
+  {
+   "id": "s_qswozy1",
+   "boothId": "b10",
+   "start": "12:00",
+   "end": "12:20",
+   "capacity": 8,
+   "blocked": false,
+   "count": 0
+  },
+  {
+   "id": "s_nvkytql",
+   "boothId": "b10",
+   "start": "12:20",
+   "end": "12:40",
+   "capacity": 8,
+   "blocked": false,
+   "count": 0
+  },
+  {
+   "id": "s_zbxpfjf",
+   "boothId": "b10",
+   "start": "12:40",
+   "end": "13:00",
+   "capacity": 8,
+   "blocked": false,
+   "count": 0
+  },
+  {
+   "id": "s_6l5imjw",
+   "boothId": "b10",
+   "start": "13:00",
+   "end": "13:20",
+   "capacity": 8,
+   "blocked": false,
+   "count": 0
+  },
+  {
+   "id": "s_dr9rh0i",
+   "boothId": "b10",
+   "start": "13:20",
+   "end": "13:40",
+   "capacity": 8,
+   "blocked": false,
+   "count": 0
+  },
+  {
+   "id": "s_a70l1lc",
+   "boothId": "b10",
+   "start": "13:40",
+   "end": "14:00",
+   "capacity": 8,
+   "blocked": false,
+   "count": 0
+  },
+  {
+   "id": "s_trgcs1w",
+   "boothId": "b10",
+   "start": "14:00",
+   "end": "14:20",
+   "capacity": 8,
+   "blocked": false,
+   "count": 0
+  },
+  {
+   "id": "s_m5jmssc",
+   "boothId": "b10",
+   "start": "14:20",
+   "end": "14:40",
+   "capacity": 8,
+   "blocked": false,
+   "count": 0
+  },
+  {
+   "id": "s_5u4mtyf",
+   "boothId": "b10",
+   "start": "14:40",
+   "end": "15:00",
+   "capacity": 8,
+   "blocked": false,
+   "count": 0
+  }
+ ],
+ "reservations": [],
+ "notices": [
+  {
+   "id": "n_ta3u3g5",
+   "body": "본관 5층 방탈출 오후 회차 예약이 빠르게 마감되고 있어요!",
+   "urgent": true,
+   "boothId": null,
+   "createdAt": 1792319447741
+  },
+  {
+   "id": "n_8r9h6oc",
+   "body": "분실물은 본관 1층 행정실 옆 운영본부로 가져다주세요.",
+   "urgent": false,
+   "boothId": null,
+   "createdAt": 1792316447741
+  }
+ ],
+ "accounts": [
+  {
+   "id": "meyun",
+   "pw": "1234",
+   "role": "admin"
+  },
+  {
+   "id": "booth01",
+   "pw": "1234",
+   "role": "op",
+   "boothId": "b01"
+  },
+  {
+   "id": "booth02",
+   "pw": "1234",
+   "role": "op",
+   "boothId": "b02"
+  },
+  {
+   "id": "booth03",
+   "pw": "1234",
+   "role": "op",
+   "boothId": "b03"
+  },
+  {
+   "id": "booth04",
+   "pw": "1234",
+   "role": "op",
+   "boothId": "b04"
+  },
+  {
+   "id": "booth05",
+   "pw": "1234",
+   "role": "op",
+   "boothId": "b05"
+  },
+  {
+   "id": "booth06",
+   "pw": "1234",
+   "role": "op",
+   "boothId": "b06"
+  },
+  {
+   "id": "booth07",
+   "pw": "1234",
+   "role": "op",
+   "boothId": "b07"
+  },
+  {
+   "id": "booth08",
+   "pw": "1234",
+   "role": "op",
+   "boothId": "b08"
+  },
+  {
+   "id": "booth09",
+   "pw": "1234",
+   "role": "op",
+   "boothId": "b09"
+  },
+  {
+   "id": "booth10",
+   "pw": "1234",
+   "role": "op",
+   "boothId": "b10"
+  }
+ ]
+}

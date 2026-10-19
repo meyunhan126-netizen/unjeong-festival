@@ -1,0 +1,166 @@
+rules_version = '2';
+// =========================================================
+// 운정 페스티벌 - Firestore 보안 규칙
+// Firebase 콘솔 > Firestore Database > 규칙(Rules) 탭에 전체를 붙여넣고 [게시]하세요.
+// =========================================================
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function userPath(uid) { return /databases/$(database)/documents/users/$(uid); }
+    function slotPath(id) { return /databases/$(database)/documents/slots/$(id); }
+    function resvPath(id) { return /databases/$(database)/documents/reservations/$(id); }
+    function queuePath(id) { return /databases/$(database)/documents/queues/$(id); }
+    function ticketPath(id) { return /databases/$(database)/documents/tickets/$(id); }
+    function hasProfile() { return signedIn() && exists(userPath(request.auth.uid)); }
+    function me() { return get(userPath(request.auth.uid)).data; }
+    function isAdmin() { return hasProfile() && me().role == 'admin'; }
+    function isOpOf(boothId) { return hasProfile() && me().role == 'op' && me().boothId == boothId; }
+
+    // 행사 설정: 누구나 읽기, 관리자만 수정 (최초 1회는 관리자 계정 생성과 함께 만들 수 있음)
+    match /settings/{doc} {
+      allow read: if true;
+      allow create: if signedIn() && doc == 'main'
+        && getAfter(userPath(request.auth.uid)).data.role == 'admin';
+      allow update, delete: if isAdmin();
+    }
+
+    // 관리자 / 부스 운영자 / 참여자(학생) 프로필
+    match /users/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
+      allow create: if isAdmin()
+        || (signedIn() && request.auth.uid == uid && request.resource.data.role == 'admin'
+            && !exists(/databases/$(database)/documents/settings/main))
+        // 참여자 회원가입: 본인 계정만, 역할은 student 로만 (학번 중복은 Firebase 로그인 계정이 막아줌)
+        || (signedIn() && request.auth.uid == uid && request.resource.data.role == 'student'
+            && request.resource.data.keys().hasOnly(['role', 'loginId', 'studentNo', 'name'])
+            && request.resource.data.studentNo.matches('[0-9]{5}')
+            && request.resource.data.loginId == request.resource.data.studentNo + request.resource.data.name);
+      allow update, delete: if isAdmin();
+    }
+
+    // 부스: 누구나 읽기, 운영자는 자기 부스만 수정 (공개 승인은 관리자만)
+    match /booths/{id} {
+      allow read: if true;
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin()
+        || (isOpOf(id) && (request.resource.data.status == resource.data.status
+                           || request.resource.data.status == 'pending'));
+    }
+
+    // 예약 회차: 누구나 읽기. 관람객은 "예약/취소와 함께" 인원 수만 ±예약 인원(party) 만큼 바꿀 수 있음
+    function visitorCountChange(slotId) {
+      let d = request.resource.data;
+      let rid = d.lastResv;
+      return signedIn()
+        && d.diff(resource.data).affectedKeys().hasOnly(['count', 'lastResv'])
+        && (
+          (!exists(resvPath(rid)) && getAfter(resvPath(rid)).data.slotId == slotId
+            && d.count == resource.data.get('count', 0) + getAfter(resvPath(rid)).data.party
+            && d.count <= resource.data.capacity
+            && resource.data.blocked == false)
+          ||
+          (d.count == resource.data.get('count', 0) - get(resvPath(rid)).data.get('party', 1) && d.count >= 0
+            && get(resvPath(rid)).data.slotId == slotId
+            && get(resvPath(rid)).data.status == 'reserved'
+            && getAfter(resvPath(rid)).data.status in ['cancelled', 'noshow'])
+        );
+    }
+    match /slots/{id} {
+      allow read: if true;
+      allow create: if isAdmin() || isOpOf(request.resource.data.boothId);
+      allow delete: if isAdmin() || isOpOf(resource.data.boothId);
+      allow update: if isAdmin() || isOpOf(resource.data.boothId) || visitorCountChange(id);
+    }
+
+    // 예약: 본인 / 해당 부스 운영자 / 관리자만 읽기 (이름·전화번호 보호)
+    //   party(인원)·phone(숫자만 10~11자리)은 예약할 때 정해지고 관람객이 바꿀 수 없음
+    match /reservations/{id} {
+      allow read: if signedIn() && (resource.data.device == request.auth.uid
+                                    || isOpOf(resource.data.boothId) || isAdmin());
+      allow create: if isAdmin()   // 관리자: 백업 복구
+        || signedIn()
+        && request.resource.data.device == request.auth.uid
+        && request.resource.data.status == 'reserved'
+        && request.resource.data.name is string && request.resource.data.name.size() <= 10
+        && request.resource.data.phone.matches('01[0-9]{8,9}')
+        && request.resource.data.party is int && request.resource.data.party >= 1 && request.resource.data.party <= 10
+        && get(slotPath(request.resource.data.slotId)).data.boothId == request.resource.data.boothId
+        && getAfter(slotPath(request.resource.data.slotId)).data.lastResv == id
+        && getAfter(slotPath(request.resource.data.slotId)).data.count
+           == get(slotPath(request.resource.data.slotId)).data.get('count', 0) + request.resource.data.party;
+      allow update: if isAdmin() || isOpOf(resource.data.boothId)
+        || (resource.data.device == request.auth.uid && resource.data.status == 'reserved'
+            && request.resource.data.status in ['cancelled', 'noshow']
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']));
+      allow delete: if isAdmin();
+    }
+
+    // ---------------------------------------------------------
+    // QR 줄서기
+    //   queues/{부스ID}: 누구나 읽기 (대기 인원·현재 호출 번호는 공개 정보)
+    //   관람객은 "줄서기/취소와 함께" seq·waiting 만 ±1 할 수 있음
+    // ---------------------------------------------------------
+    function visitorQueueChange(boothId) {
+      let d = request.resource.data;
+      let old = resource.data;
+      let tid = d.lastTicket;
+      return signedIn()
+        && d.diff(old).affectedKeys().hasOnly(['seq', 'waiting', 'lastTicket'])
+        && (
+          // 줄서기: 번호 +1, 대기 +1, 같은 번호의 새 번호표가 함께 만들어져야 함
+          (d.seq == old.get('seq', 0) + 1 && d.waiting == old.get('waiting', 0) + 1
+            && old.get('open', true) == true
+            && !exists(ticketPath(tid))
+            && getAfter(ticketPath(tid)).data.boothId == boothId
+            && getAfter(ticketPath(tid)).data.no == d.seq)
+          ||
+          // 취소: 대기 -1, 본인의 대기 중 번호표가 함께 취소되어야 함
+          (d.seq == old.get('seq', 0) && d.waiting == old.get('waiting', 0) - 1 && d.waiting >= 0
+            && get(ticketPath(tid)).data.boothId == boothId
+            && get(ticketPath(tid)).data.status == 'waiting'
+            && getAfter(ticketPath(tid)).data.status == 'cancelled')
+        );
+    }
+    match /queues/{id} {
+      allow read: if true;
+      allow create: if isAdmin() || isOpOf(id);
+      allow update: if isAdmin() || isOpOf(id) || visitorQueueChange(id);
+      allow delete: if isAdmin();
+    }
+
+    // 번호표: 본인 / 해당 부스 운영자 / 관리자만 읽기 (이름 보호)
+    match /tickets/{id} {
+      allow read: if signedIn() && (resource.data.device == request.auth.uid
+                                    || isOpOf(resource.data.boothId) || isAdmin());
+      allow create: if isAdmin() || isOpOf(request.resource.data.boothId)   // 운영자: 현장 등록 / 관리자: 복구
+        || signedIn()
+        && request.resource.data.device == request.auth.uid
+        && request.resource.data.status == 'waiting'
+        && request.resource.data.source == 'qr'
+        && request.resource.data.name is string && request.resource.data.name.size() <= 10
+        && getAfter(queuePath(request.resource.data.boothId)).data.lastTicket == id
+        && getAfter(queuePath(request.resource.data.boothId)).data.seq == request.resource.data.no
+        && request.resource.data.no == get(queuePath(request.resource.data.boothId)).data.get('seq', 0) + 1;
+      allow update: if isAdmin() || isOpOf(resource.data.boothId)
+        // 관람객은 본인 번호표를 "취소"로만 바꿀 수 있음
+        || (signedIn() && resource.data.device == request.auth.uid
+            && resource.data.status in ['waiting', 'called']
+            && request.resource.data.status == 'cancelled'
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']));
+      allow delete: if isAdmin();
+    }
+
+    // 공지: 누구나 읽기, 관리자만 작성
+    match /notices/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // 접속자 수 집계용
+    match /presence/{uid} {
+      allow write: if signedIn() && request.auth.uid == uid;
+      allow read: if isAdmin();
+    }
+  }
+}
