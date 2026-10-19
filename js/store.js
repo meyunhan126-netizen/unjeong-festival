@@ -792,6 +792,34 @@ const Store = (() => {
     await auth.signOut();   // → onAuthStateChanged 에서 다시 익명 로그인
   }
 
+  // ---------- 내 비밀번호 바꾸기 (관리자 · 운영자 · 참여자 모두) ----------
+  //   서버 모드: 현재 비밀번호로 한 번 더 확인(재인증)한 뒤 Firebase 계정의 비밀번호를 바꿈
+  //   Firebase 콘솔에서는 이 앱 계정의 비밀번호를 직접 바꿀 수 없어서(가짜 이메일 주소라 재설정 메일을 못 받음) 앱 안에서 바꿉니다.
+  async function changePassword(oldPw, newPw) {
+    if (!session) throw new Error('로그인한 뒤에 바꿀 수 있어요.');
+    oldPw = String(oldPw || ''); newPw = String(newPw || '');
+    if (newPw.length < 4) throw new Error('새 비밀번호는 4자 이상으로 정하세요.');
+    if (newPw === oldPw) throw new Error('지금과 다른 비밀번호를 입력하세요.');
+    if (!REMOTE) {
+      const a = db.accounts.find(x => x.id === session.id);
+      if (!a || a.pw !== oldPw) throw new Error('현재 비밀번호가 맞지 않아요.');
+      a.pw = newPw;
+      saveLocal();
+      return true;
+    }
+    const u = auth.currentUser;
+    if (!u || u.isAnonymous) throw new Error('다시 로그인한 뒤 시도해 주세요.');
+    try {
+      await u.reauthenticateWithCredential(firebase.auth.EmailAuthProvider.credential(u.email, authPw(oldPw)));
+    } catch (e) {
+      if (e.code === 'auth/too-many-requests') throw new Error('시도가 너무 많아요. 잠시 뒤에 다시 해 주세요.');
+      throw new Error('현재 비밀번호가 맞지 않아요.');
+    }
+    try { await u.updatePassword(authPw(newPw)); }
+    catch (e) { throw new Error(errMsg(e)); }
+    return true;
+  }
+
   // ---------- 참여자 회원가입 (아이디 = 학번 + 이름) ----------
   async function signupStudent(studentNo, name, pw) {
     studentNo = String(studentNo).trim(); name = String(name).trim();
@@ -1219,7 +1247,7 @@ const Store = (() => {
     resv, myResv, resvOfBooth, partyOf, fmtPhone, reserve, setResvStatus, checkIn, autoNoShow,
     createQR, deleteQR, qrValid,
     notices, addNotice, deleteNotice,
-    session: getSession, accounts, login, logout, isSetupNeeded, setupAdmin, signupStudent,
+    session: getSession, accounts, login, logout, changePassword, isSetupNeeded, setupAdmin, signupStudent,
     createOpAccount, updateAccount, deleteAccount, STUDENT_RE,
     freeRooms, addBooth, deleteBooth, createBoothAccount, issueMissingAccounts, reissueAccount, setSettings, reset,
     heartbeat, presence, exportCSV, exportData, importData, snapshot, snapshots,

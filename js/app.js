@@ -940,7 +940,7 @@ function viewMy() {
 
   const sess = getSession();
   const acct = sess && sess.role === 'student'
-    ? `<div class="acct-bar"><span>${icon('people')}<b>${esc(sess.name)}</b>님 · 학번 ${esc(sess.studentNo)}</span><button class="btn ghost sm" id="my-logout">로그아웃</button></div>`
+    ? `<div class="acct-bar"><span>${icon('people')}<b>${esc(sess.name)}</b>님 · 학번 ${esc(sess.studentNo)}</span><span class="row"><a class="btn ghost sm" href="#/password">비밀번호 변경</a><button class="btn ghost sm" id="my-logout">로그아웃</button></span></div>`
     : sess ? ''
     : `<div class="acct-bar"><span>학번 + 이름 계정으로 로그인하면 <b>다른 기기에서도</b> 내 예약을 볼 수 있어요.</span><a class="btn sm" href="#/login" data-next>로그인</a></div>`;
   app.innerHTML = `
@@ -1073,6 +1073,44 @@ function viewLogin(tab = 'login', hint = '') {
   }
 }
 
+// =========================================================
+// 내 비밀번호 바꾸기 (#/password) — 관리자 · 운영자 · 참여자 공용
+// =========================================================
+function viewPassword() {
+  const s = getSession();
+  if (!s) { ui.next = '#/password'; location.hash = '#/login'; return; }
+  const roleTxt = { admin: '관리자', op: '부스 운영자', student: '참여자' }[s.role];
+  const back = s.role === 'admin' ? '#/admin/settings' : s.role === 'op' ? '#/op' : '#/my';
+  app.innerHTML = `
+    ${pageBanner('비밀번호 변경', 'PASSWORD', [['비밀번호 변경', '']])}
+    <div class="login">
+      <p class="acct-bar"><span><b>${esc(s.name || s.id)}</b> (${roleTxt}) 계정의 비밀번호를 바꿔요.</span></p>
+      <form class="form" id="pw-form">
+        <label>현재 비밀번호<input name="old" type="password" required autocomplete="current-password"></label>
+        <label>새 비밀번호 (4자 이상)<input name="pw" type="password" required minlength="4" autocomplete="new-password"></label>
+        <label>새 비밀번호 확인<input name="pw2" type="password" required minlength="4" autocomplete="new-password"></label>
+        <button class="btn full">비밀번호 바꾸기</button>
+        <p class="small muted">아이디(${esc(s.id)})는 그대로이고 비밀번호만 바뀌어요. 다음 로그인부터 새 비밀번호를 쓰세요.${s.role === 'op' ? ' 바꾼 비밀번호는 관리자 화면의 계정 목록에는 보이지 않으니 따로 기억해 두세요.' : ''}</p>
+      </form>
+      <p class="login-links"><a href="${back}">← 돌아가기</a></p>
+    </div>`;
+  const f = document.getElementById('pw-form');
+  f.onsubmit = async (e) => {
+    e.preventDefault();
+    if (f.pw.value !== f.pw2.value) return toast('새 비밀번호 확인이 일치하지 않아요.', 'err');
+    const btn = f.querySelector('button');
+    btn.disabled = true; btn.textContent = '바꾸는 중…';
+    try {
+      await Store.changePassword(f.old.value, f.pw.value);
+      toast('비밀번호를 바꿨어요. 다음 로그인부터 새 비밀번호를 쓰세요.');
+      location.hash = back;
+    } catch (err) {
+      btn.disabled = false; btn.textContent = '비밀번호 바꾸기';
+      toast(err.message, 'err');
+    }
+  };
+}
+
 async function logout() { await Store.logout(); ui.draft = null; location.hash = '#/'; }
 
 const statusLabel = (s) => ({ draft: '작성 중', pending: '승인 대기', approved: '공개 중', hidden: '비공개' }[s]);
@@ -1098,6 +1136,7 @@ function viewOp(tab) {
       </div>
       <div class="row">
         <a class="btn ghost sm" href="#/booth/${b.id}">미리보기</a>
+        <a class="btn ghost sm" href="#/password">비밀번호 변경</a>
         <button class="btn ghost sm" id="logout">로그아웃</button>
       </div>
     </div>
@@ -1567,7 +1606,7 @@ function viewAdmin(tab = 'dash') {
     ${pageBanner('운영 본부', 'ADMINISTRATION', [['운영 본부', '']])}
     <div class="op-head">
       <p class="small muted">${esc(sess.id)} 관리자님 · 모든 부스와 예약 현황을 관리합니다.</p>
-      <button class="btn ghost sm" id="logout">로그아웃</button>
+      <div class="row"><a class="btn ghost sm" href="#/password">비밀번호 변경</a><button class="btn ghost sm" id="logout">로그아웃</button></div>
     </div>
     <div class="tabs">${tabs.map(([k, l]) => `<a href="#/admin/${k}" class="${tab === k ? 'on' : ''}">${l}</a>`).join('')}</div>
     <div id="ad-body"></div>`;
@@ -2069,6 +2108,12 @@ function adSettings(root) {
   const cur = fromMin(d.getHours() * 60 + d.getMinutes());
   root.innerHTML = `
     <div class="panel">
+      <h2>🔐 관리자 비밀번호</h2>
+      <p class="small muted">처음 설정한 비밀번호(예: 1234)는 꼭 바꿔 두세요. 링크를 아는 누구나 로그인을 시도할 수 있어요.</p>
+      <a class="btn sm" href="#/password">비밀번호 바꾸기</a>
+    </div>
+
+    <div class="panel">
       <h2>행사 정보</h2>
       <form class="form" id="sf">
         <div class="grid2">
@@ -2302,6 +2347,7 @@ const routes = [
   { re: /^\/op(?:\/(edit|crowd|resv))?$/,                         mode: 'op',      view: (t) => viewOp(t),         live: (t) => t !== 'edit' },
   { re: /^\/admin\/login$/,                                       mode: 'visitor', view: () => viewLogin('login', 'admin') },
   { re: /^\/admin(?:\/(dash|booths|resv|qr|notices|accounts|settings))?$/, mode: 'admin', view: (t) => viewAdmin(t),   live: (t) => !t || t === 'dash' || t === 'booths' },
+  { re: /^\/password$/,                                           mode: 'visitor', view: () => viewPassword() },
   { re: /^\/setup$/,                                              mode: 'visitor', view: () => viewSetup() },
 ];
 
