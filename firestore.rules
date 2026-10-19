@@ -16,6 +16,8 @@ service cloud.firestore {
     function me() { return get(userPath(request.auth.uid)).data; }
     function isAdmin() { return hasProfile() && me().role == 'admin'; }
     function isOpOf(boothId) { return hasProfile() && me().role == 'op' && me().boothId == boothId; }
+    // 관리자가 차단한 기기(로그인 ID)는 예약·줄서기·가입을 할 수 없음
+    function notBlocked() { return !exists(/databases/$(database)/documents/blocked/$(request.auth.uid)); }
 
     // 행사 설정: 누구나 읽기, 관리자만 수정 (최초 1회는 관리자 계정 생성과 함께 만들 수 있음)
     match /settings/{doc} {
@@ -32,7 +34,7 @@ service cloud.firestore {
         || (signedIn() && request.auth.uid == uid && request.resource.data.role == 'admin'
             && !exists(/databases/$(database)/documents/settings/main))
         // 참여자 회원가입: 본인 계정만, 역할은 student 로만 (학번 중복은 Firebase 로그인 계정이 막아줌)
-        || (signedIn() && request.auth.uid == uid && request.resource.data.role == 'student'
+        || (signedIn() && request.auth.uid == uid && request.resource.data.role == 'student' && notBlocked()
             && request.resource.data.keys().hasOnly(['role', 'loginId', 'studentNo', 'name'])
             && request.resource.data.studentNo.matches('[0-9]{5}')
             && request.resource.data.loginId == request.resource.data.studentNo + request.resource.data.name);
@@ -88,7 +90,8 @@ service cloud.firestore {
         && get(slotPath(request.resource.data.slotId)).data.boothId == request.resource.data.boothId
         && getAfter(slotPath(request.resource.data.slotId)).data.lastResv == id
         && getAfter(slotPath(request.resource.data.slotId)).data.count
-           == get(slotPath(request.resource.data.slotId)).data.get('count', 0) + request.resource.data.party;
+           == get(slotPath(request.resource.data.slotId)).data.get('count', 0) + request.resource.data.party
+        && notBlocked();
       allow update: if isAdmin() || isOpOf(resource.data.boothId)
         || (resource.data.device == request.auth.uid && resource.data.status == 'reserved'
             && request.resource.data.status in ['cancelled', 'noshow']
@@ -141,7 +144,8 @@ service cloud.firestore {
         && request.resource.data.name is string && request.resource.data.name.size() <= 10
         && getAfter(queuePath(request.resource.data.boothId)).data.lastTicket == id
         && getAfter(queuePath(request.resource.data.boothId)).data.seq == request.resource.data.no
-        && request.resource.data.no == get(queuePath(request.resource.data.boothId)).data.get('seq', 0) + 1;
+        && request.resource.data.no == get(queuePath(request.resource.data.boothId)).data.get('seq', 0) + 1
+        && notBlocked();
       allow update: if isAdmin() || isOpOf(resource.data.boothId)
         // 관람객은 본인 번호표를 "취소"로만 바꿀 수 있음
         || (signedIn() && resource.data.device == request.auth.uid
@@ -149,6 +153,28 @@ service cloud.firestore {
             && request.resource.data.status == 'cancelled'
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']));
       allow delete: if isAdmin();
+    }
+
+    // ---------------------------------------------------------
+    // 보안
+    //   blocked/{기기ID}   : 차단 목록. 관리자만 쓰기, 본인은 "내가 차단됐는지"만 읽기
+    //   securityLog/{ID}   : 보안 로그. 로그인한 기기는 "자기 기기 이름으로" 정해진 형식만 추가 가능, 읽기·삭제는 관리자만
+    // ---------------------------------------------------------
+    match /blocked/{dev} {
+      allow read: if isAdmin() || (signedIn() && request.auth.uid == dev);
+      allow write: if isAdmin();
+    }
+    match /securityLog/{id} {
+      allow read, delete: if isAdmin();
+      allow update: if false;
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['type', 'detail', 'loginId', 'device', 'at', 'ua'])
+        && request.resource.data.device == request.auth.uid
+        && request.resource.data.type is string && request.resource.data.type.size() <= 20
+        && request.resource.data.detail is string && request.resource.data.detail.size() <= 200
+        && request.resource.data.loginId is string && request.resource.data.loginId.size() <= 40
+        && request.resource.data.ua is string && request.resource.data.ua.size() <= 200
+        && request.resource.data.at is number;
     }
 
     // 공지: 누구나 읽기, 관리자만 작성

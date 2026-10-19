@@ -26,6 +26,7 @@ const Backup = (() => {
     '부스': { key: 'booths', cols: [
       ['부스ID', 'id'], ['부스명', 'name'], ['동아리', 'club'], ['이모지', 'emoji'], ['색상', 'color'],
       ['유형(reserve=예약/live=당일)', 'type'], ['건물(main=본관/rear=후관)', 'building'], ['층', 'floor', 'num'], ['교실', 'room'],
+      ['위치목록(JSON, []이면 미정)', 'locations', 'json'],
       ['테마(쉼표로 구분)', 'themes', 'list'], ['한줄소개', 'summary'],
       ['상태(approved=공개/pending=승인대기/draft=작성중/hidden=비공개)', 'status'],
       ['1명당처리분', 'minPerPerson', 'num'], ['혼잡도방식(qr/manual)', 'crowdMode'], ['직접입력 혼잡도(free/normal/busy)', 'crowd'], ['직접입력 대기인원', 'waiting', 'num'],
@@ -71,7 +72,7 @@ const Backup = (() => {
     if (type === 'bool') return v === true || /^(true|o|y|yes|1|예)$/i.test(String(v).trim());
     if (type === 'list') return empty ? [] : String(v).split(',').map(x => x.trim()).filter(Boolean);
     if (type === 'json') {
-      if (empty) return key === 'blocks' ? [] : null;
+      if (empty) return key === 'blocks' ? [] : null;   // locations 칸을 비우면 아래 building/floor/room 으로 계산
       try { return JSON.parse(v); } catch (e) { throw new Error(`'${key}' 칸의 JSON 형식이 잘못됐어요: ${String(v).slice(0, 40)}…`); }
     }
     if (empty) return NULLABLE.includes(key) ? null : '';

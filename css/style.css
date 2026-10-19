@@ -805,6 +805,42 @@ input.mini, select.mini { padding: 6px 8px; font-size: .84rem; min-width: 110px;
 .qr-invalid .big-ico { font-size: 2.4rem; margin: 0; }
 .qr-invalid h2 { font-family: var(--font-serif); }
 
+/* 시스템 안내 띠 (비상 · 연결 끊김 · 차단) */
+.sysbar { position: sticky; top: 0; z-index: 25; display: none; }
+.sysbar.on { display: block; }
+.sysbar > div { padding: 10px 16px; text-align: center; font-size: .88rem; font-weight: 600; line-height: 1.45; }
+.sysbar .sys-em { background: var(--red); color: #fff; }
+.sysbar .sys-warn { background: var(--gold-soft); color: #6b4f1f; border-bottom: 1px solid #e2cfa9; }
+body.is-home .sysbar.on, body.has-banner .sysbar.on { position: fixed; left: 0; right: 0; top: auto; bottom: 0; z-index: 61; }
+body.sys-on.is-home .callbar, body.sys-on.has-banner .callbar { bottom: calc(76px + env(safe-area-inset-bottom)); }
+
+/* 보안 표: 좁은 화면에서는 옆으로 넘겨 보기 */
+.wide-tbl { min-width: 620px; }
+.wide-tbl td.small { white-space: nowrap; }
+
+/* 비상용 명단 인쇄 */
+.em-print { font-size: 10pt; color: #000; }
+.em-print h2 { font-size: 15pt; margin: 0 0 2mm; }
+.em-print > p { margin: 0 0 4mm; }
+.em-booth { break-inside: avoid; margin-bottom: 5mm; }
+.em-booth h3 { font-size: 11.5pt; margin: 0 0 1.5mm; border-bottom: 1.5px solid #000; padding-bottom: 1mm; }
+.em-booth h3 small { font-weight: 400; font-size: 9pt; }
+.em-booth table { width: 100%; border-collapse: collapse; }
+.em-booth th, .em-booth td { border: 1px solid #999; padding: 1.2mm 2mm; text-align: left; font-size: 9.5pt; }
+.em-booth th { background: #eee; }
+
+/* 부스 위치: 여러 곳 · 미정 */
+.loc-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 10px; }
+.loc-chip { display: inline-flex; align-items: center; gap: 4px; padding: 5px 6px 5px 10px; border-radius: 99px; background: var(--slate-mist); border: 1px solid var(--line); font-size: .85rem; color: var(--ink); }
+.loc-chip small { color: var(--amber); }
+.loc-chip button { border: 0; background: none; cursor: pointer; font-size: 1rem; line-height: 1; color: var(--muted); padding: 0 4px; }
+.loc-chip button:hover { color: var(--red); }
+.loc-pick { display: grid; grid-template-columns: .9fr .7fr 1.6fr auto; gap: 6px; align-items: center; }
+.undecided-check span { line-height: 1.45; }
+.loc-admin { border: 1.5px solid var(--gold); }
+.cell-more { position: absolute; left: 4px; top: 4px; font-style: normal; font-size: .62rem; font-weight: 700; background: var(--ink); color: #fff; border-radius: 99px; padding: 0 5px; }
+@media (max-width: 480px) { .loc-pick { grid-template-columns: 1fr 1fr; } .loc-pick select[data-loc-r] { grid-column: 1 / -1; } }
+
 /* 혼잡도 방식 선택 · 직접 고치기 */
 .mode-panel .type-pick label small { line-height: 1.45; }
 .crowd-btns.three { grid-template-columns: repeat(3, 1fr); }

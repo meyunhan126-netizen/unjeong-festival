@@ -15,7 +15,7 @@ const tabbar = document.getElementById('tabbar');
 const topnav = document.getElementById('topnav');
 const loginLink = document.getElementById('login-link');
 const TAB_ID = uid('tab');
-const ui = { building: 'main', floor: 1, theme: 'all', q: '', selSlot: null, selDate: null, boardDate: null, adResvBooth: null, lastResv: null, draft: null, heroIdx: 0, next: null };
+const ui = { adLocBooth: null, adLoc: null, building: 'main', floor: 1, theme: 'all', q: '', selSlot: null, selDate: null, boardDate: null, adResvBooth: null, lastResv: null, draft: null, heroIdx: 0, next: null };
 let current = null;   // 현재 화면 { route, params }
 
 // =========================================================
@@ -61,7 +61,7 @@ function readImage(file, maxW = 640) {
         c.width = Math.round(img.width * s);
         c.height = Math.round(img.height * s);
         c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
-        resolve(c.toDataURL('image/jpeg', 0.7));
+        resolve(c.toDataURL('image/jpeg', 0.68));   // 서버 절약: 사진은 작게 줄여 저장
       };
       img.onerror = reject;
       img.src = fr.result;
@@ -98,7 +98,10 @@ const icon = (name, cls = 'ico') => `<svg class="${cls}" viewBox="0 0 24 24" fil
 // 공통 UI 조각
 // =========================================================
 const crowdOf = (b) => CROWD[Store.crowdKey(b)];   // 혼잡도는 자동 계산 (store.js의 crowdKey)
-const locText = (b) => `${buildingLabel(b.building)} ${b.floor}층 ${esc(b.room)}`;
+// 위치 글자: 미정이면 '위치 미정', 여러 곳이면 '첫 위치 외 N곳' (locAll 은 전부)
+const locPlain = (b) => { const l = locsOf(b); return l.length ? locLabel(l[0]) + (l.length > 1 ? ` 외 ${l.length - 1}곳` : '') : '위치 미정'; };
+const locText = (b) => esc(locPlain(b));
+const locAll = (b) => { const l = locsOf(b); return l.length ? l.map(x => esc(locLabel(x))).join(' · ') : '위치 미정'; };
 const themeLabel = (id) => { const t = THEMES.find(x => x.id === id); return t ? `${t.emoji} ${t.label}` : id; };
 
 function crowdBadge(b) {
@@ -147,19 +150,22 @@ function floorPlan(building, floor, opts = {}) {
   const rows = floorRows(building, floor);
   const byRoom = {};
   Store.booths()
-    .filter(b => (b.building || 'main') === building && b.floor === floor && (opts.all || b.status === 'approved'))
-    .forEach(b => { byRoom[b.room] = b; });
+    .filter(b => opts.all || b.status === 'approved')
+    .forEach(b => locsOf(b).forEach(l => { if (l.building === building && l.floor === floor) (byRoom[l.room] = byRoom[l.room] || []).push(b); }));
   const cell = (c) => {
     const st = `flex:${c.w} 1 0`;
     if (c.gap) return `<div class="cell gap" style="${st}"></div>`;
     if (c.fac) return `<div class="cell fac" style="${st}" title="${esc(c.name)}"><span>${esc(c.name)}</span></div>`;
-    const b = byRoom[c.name];
-    if (!b) return `<div class="cell room" style="${st}"><span class="cell-name">${esc(c.name)}</span></div>`;
+    const list = byRoom[c.name];
+    if (!list) return `<div class="cell room" style="${st}"><span class="cell-name">${esc(c.name)}</span></div>`;
+    // 한 교실을 여러 부스가 같이 쓰면: 강조할 부스(없으면 첫 부스)를 보여 주고 '+N' 표시
+    const b = list.find(x => x.id === opts.highlight) || list[0];
+    const more = list.length > 1 ? `<i class="cell-more" title="${esc(list.map(x => x.name).join(', '))}">+${list.length - 1}</i>` : '';
     const cr = crowdOf(b);
     const warn = opts.all && Store.isStale(b) ? '<i class="cell-warn" title="호출 지연">!</i>' : '';
     return `
-      <a class="cell room booth ${opts.highlight === b.id ? 'hl' : ''}" style="${st};--c:${cr.color}" href="#/booth/${b.id}" title="${esc(b.name)}">
-        ${warn}<span class="cell-name">${esc(c.name)}</span>
+      <a class="cell room booth ${list.some(x => x.id === opts.highlight) ? 'hl' : ''}" style="${st};--c:${cr.color}" href="#/booth/${b.id}" title="${esc(list.map(x => x.name).join(', '))}">
+        ${warn}${more}<span class="cell-name">${esc(c.name)}</span>
         <span class="cell-emoji">${b.emoji}</span>
         <span class="cell-booth">${esc(b.name)}</span>
         <span class="cell-crowd">${cr.label}${b.type === 'live' && Store.waitingOf(b) ? ` · ${Store.waitingOf(b)}명` : ''}</span>
@@ -189,7 +195,7 @@ function buildingModel(selB, selF, opts = {}) {
   const all = [];
   const pts = (arr) => arr.map(p => { const q = P(...p); all.push(q); return q.map(v => v.toFixed(1)).join(','); }).join(' ');
   const list = Store.booths().filter(b => opts.all || b.status === 'approved');
-  const count = (bid, f) => list.filter(b => (b.building || 'main') === bid && b.floor === f).length;
+  const count = (bid, f) => list.filter(b => onFloor(b, bid, f)).length;
   const blocks = [   // 뒤쪽부터 그려야 겹침이 자연스러움
     { id: 'rear', x0: 1.5, x1: 9.5, y0: -7.8, y1: -5.2 },
     { id: 'bridge', x0: 5.7, x1: 6.7, y0: -5.2, y1: 0, floors: [2, 3, 4] },
@@ -402,8 +408,9 @@ function viewExplore(mode = 'floor') {
 
   if (mode === 'floor') {
     const pub = Store.publicBooths();
-    const list = pub.filter(b => (b.building || 'main') === ui.building && b.floor === ui.floor);
-    const cnt = (bid, f) => pub.filter(b => (b.building || 'main') === bid && b.floor === f).length;
+    const list = pub.filter(b => onFloor(b, ui.building, ui.floor));
+    const cnt = (bid, f) => pub.filter(b => onFloor(b, bid, f)).length;
+    const undecided = pub.filter(isUndecided);   // 위치 미정 부스는 안내도에 안 나오고 아래에 따로 보여 줌
     body = `
       <div class="floor-guide">
         <div class="model-card">${buildingModel(ui.building, ui.floor)}
@@ -423,7 +430,10 @@ function viewExplore(mode = 'floor') {
       </div>
       ${floorPlan(ui.building, ui.floor)}
       <h2 class="sec-title">${buildingLabel(ui.building)} ${ui.floor}층 부스 <span class="muted">${list.length}</span></h2>
-      ${boothList(list, '이 층에는 부스가 없어요. 위에서 다른 층을 눌러 보세요.')}`;
+      ${boothList(list, '이 층에는 부스가 없어요. 위에서 다른 층을 눌러 보세요.')}
+      ${undecided.length ? `<h2 class="sec-title">📍 위치가 아직 정해지지 않은 부스 <span class="muted">${undecided.length}</span></h2>
+        <p class="small muted">위치가 정해지면 층별 안내도에 표시돼요. 부스 소개와 예약·줄서기는 지금도 이용할 수 있어요.</p>
+        ${boothList(undecided)}` : ''}`;
   } else if (mode === 'club') {
     body = `
       <input class="search" id="q" type="search" placeholder="동아리 이름이나 부스 이름으로 검색" value="${esc(ui.q)}">
@@ -500,16 +510,19 @@ function viewBooth(id) {
       ${b.blocks.map(renderBlock).join('')}
 
       <div class="block">
-        <h3>위치 · ${locText(b)}</h3>
-        ${floorPlan(b.building || 'main', b.floor, { small: true, all: canPreview, highlight: b.id })}
-        <a class="link-more" href="#/explore/floor" data-goto-floor>층별 안내에서 보기 ${icon('chevron')}</a>
+        <h3>위치 · ${locAll(b)}</h3>
+        ${isUndecided(b) ? '<p class="muted">위치가 아직 정해지지 않았어요. 정해지면 이곳과 층별 안내도에 표시돼요.</p>'
+          : [...new Map(locsOf(b).map(l => [l.building + l.floor, l])).values()].slice(0, 3)
+              .map(l => floorPlan(l.building, l.floor, { small: true, all: canPreview, highlight: b.id })).join('')
+            + `<a class="link-more" href="#/explore/floor" data-goto-floor>층별 안내에서 보기 ${icon('chevron')}</a>`}
       </div>
 
       ${b.type === 'reserve' ? '<div class="block" id="reserve"></div>' : ''}
     </article>`;
 
   document.getElementById('fav').onclick = () => { const on = toggleFav(id); toast(on ? '찜 목록에 추가했어요' : '찜을 해제했어요'); viewBooth(id); };
-  app.querySelector('[data-goto-floor]').onclick = () => { ui.building = b.building || 'main'; ui.floor = b.floor; };
+  const gf = app.querySelector('[data-goto-floor]');
+  if (gf) gf.onclick = () => { const l = locsOf(b)[0]; ui.building = l.building; ui.floor = l.floor; };
   if (b.type === 'reserve') renderReserve(b);
   else renderQueue(b, document.getElementById('queue'));
 }
@@ -709,9 +722,26 @@ function updateCallBar() {
     toast(`🔔 ${b.name} ${t.no}번 차례예요!`);
     try {
       if (document.hidden && 'Notification' in window && Notification.permission === 'granted')
-        new Notification(`${b.name} ${t.no}번 차례예요!`, { body: `${grace}분 안에 ${buildingLabel(b.building)} ${b.floor}층 ${b.room}로 와 주세요.`, icon: 'images/logo.png' });
+        new Notification(`${b.name} ${t.no}번 차례예요!`, { body: `${grace}분 안에 ${locPlain(b)}로 와 주세요.`, icon: 'images/logo.png' });
     } catch (e) {}
   });
+}
+
+// ---------- 시스템 안내 띠 ----------
+//   비상 운영(js/emergency.js) · 인터넷 끊김 · 서버 사용량 초과 · 이 기기가 차단됨
+function updateSysBar() {
+  const bar = document.getElementById('sysbar');
+  if (!bar || !Store.db) return;
+  const items = [];
+  const em = window.EMERGENCY;
+  if (em && em.on) items.push(['em', `🚨 ${esc(em.message || '비상 운영 중이에요. 현장 안내를 따라 주세요.')}`]);
+  const h = Store.health;
+  if (h.state === 'offline') items.push(['warn', '📡 인터넷 연결이 끊겼어요. 저장된 정보로 보여 주는 중이고, 연결되면 자동으로 이어져요.']);
+  if (h.state === 'quota') items.push(['em', '⚠️ 서버 사용량 한도를 넘었어요. 예약·줄서기가 멈출 수 있으니 현장 안내를 따라 주세요. (운영 본부 확인 중)']);
+  if (Store.REMOTE && Store.isBlocked()) items.push(['em', '⛔ 이 기기는 운영 본부에 의해 이용이 제한되었어요. 둘러보기만 할 수 있어요.']);
+  bar.innerHTML = items.map(([cls, t]) => `<div class="sys-${cls}">${t}</div>`).join('');
+  bar.classList.toggle('on', items.length > 0);
+  document.body.classList.toggle('sys-on', items.length > 0);
 }
 
 // ---------- QR 코드 ----------
@@ -1039,10 +1069,16 @@ function viewLogin(tab = 'login', hint = '') {
   if (lf) lf.onsubmit = async (e) => {
     e.preventDefault();
     const btn = lf.querySelector('button');
+    const g0 = Store.loginGuard();
+    if (g0.locked) return toast(`로그인을 너무 많이 틀렸어요. ${Math.ceil(g0.leftSec / 60)}분 뒤에 다시 시도해 주세요.`, 'err');
     btn.disabled = true;
     const acc = await Store.login(lf.id.value, lf.pw.value);
     btn.disabled = false;
-    if (!acc) return toast('아이디 또는 비밀번호가 맞지 않아요', 'err');
+    if (!acc) {
+      const g = Store.loginGuard();
+      if (g.locked) return toast(`${Store.SEC.failMax}번 틀려서 ${Math.ceil(g.leftSec / 60)}분 동안 로그인이 잠겼어요.`, 'err');
+      return toast(`아이디 또는 비밀번호가 맞지 않아요${g.failsLeft <= 3 ? ` (${g.failsLeft}번 더 틀리면 잠깐 잠겨요)` : ''}`, 'err');
+    }
     toast(acc.role === 'student' ? `${acc.name}님, 환영해요!` : '로그인했어요');
     afterLogin(acc);
   };
@@ -1173,12 +1209,77 @@ const BLOCK_TYPES = {
   link:   { label: '🔗 링크', make: () => ({ type: 'link', title: '인스타그램', url: '' }) },
 };
 
+// ---------------------------------------------------------
+// 위치 고르기 (운영자 '페이지 편집' · 관리자 '부스' 탭 공용)
+//   state = { locs: [{building, floor, room}], undecided: bool, pick: {building, floor, room} }
+//   admin = true  → 다른 부스가 쓰는 교실도 '함께 사용'으로 지정 가능 (관리자 자유 지정)
+//   admin = false → 다른 부스가 쓰는 교실은 고를 수 없음 (운영자)
+// ---------------------------------------------------------
+function newLocState(b) {
+  const locs = locsOf(b);
+  return { locs, undecided: locs.length === 0, pick: { building: (locs[0] || {}).building || 'main', floor: (locs[0] || {}).floor || 1, room: '' } };
+}
+function locEditorHTML(state, boothId, admin) {
+  const usage = Store.roomUsage(boothId);
+  const p = state.pick;
+  const mine = new Set(state.locs.map(locKey));
+  const keyOf = (r) => `${p.building}|${p.floor}|${r}`;
+  const blocked = (r) => mine.has(keyOf(r)) || (!admin && usage[keyOf(r)]);
+  const rooms = bookableRooms(p.building, p.floor);
+  if (!rooms.includes(p.room) || blocked(p.room)) p.room = rooms.find(r => !blocked(r)) || '';
+  const who = (k) => (usage[k] || []).map(x => x.name).join(', ');
+  const opt = (r) => {
+    const k = keyOf(r), w = who(k);
+    const tag = mine.has(k) ? ' (추가됨)' : w ? (admin ? ` (함께 사용: ${w})` : ` (사용 중: ${w})`) : '';
+    return `<option value="${esc(r)}" ${p.room === r ? 'selected' : ''} ${blocked(r) ? 'disabled' : ''}>${esc(r + tag)}</option>`;
+  };
+  return `
+    <label class="check undecided-check"><input type="checkbox" data-loc-undecided ${state.undecided ? 'checked' : ''}>
+      <span><b>위치 미정</b> — 정해지면 나중에 고쳐요. 미정이면 층별 안내도에는 나오지 않고, 부스 페이지와 홍보는 그대로 공개돼요.</span></label>
+    ${state.undecided ? '' : `
+    <div class="loc-chips">${state.locs.map((l, i) => `
+      <span class="loc-chip">📍 ${esc(locLabel(l))}${who(locKey(l)) ? ` <small>· 함께: ${esc(who(locKey(l)))}</small>` : ''}
+        <button type="button" data-loc-del="${i}" aria-label="${esc(locLabel(l))} 빼기">×</button></span>`).join('') || '<span class="small muted">아직 고른 교실이 없어요. 아래에서 추가하세요.</span>'}</div>
+    <div class="loc-pick">
+      <select data-loc-b aria-label="건물">${Object.entries(BUILDINGS).map(([k, v]) => `<option value="${k}" ${p.building === k ? 'selected' : ''}>${v.label}</option>`).join('')}</select>
+      <select data-loc-f aria-label="층">${FLOOR_NUMS.map(f => `<option value="${f}" ${p.floor === f ? 'selected' : ''}>${f}층</option>`).join('')}</select>
+      <select data-loc-r aria-label="교실">${rooms.map(opt).join('')}</select>
+      <button type="button" class="btn ghost sm" data-loc-add ${p.room ? '' : 'disabled'}>+ 추가</button>
+    </div>
+    <p class="small muted">교실을 여러 곳 추가할 수 있어요 (예: 체험실 + 대기실).${admin ? ' 관리자는 다른 부스가 쓰는 교실도 함께 쓰도록 지정할 수 있어요.' : ' 다른 부스가 쓰는 교실은 고를 수 없어요. 꼭 필요하면 운영 본부에 요청하세요.'}</p>`}`;
+}
+function bindLocEditor(root, state, rerender) {
+  const q = (sel) => root.querySelector(sel);
+  const u = q('[data-loc-undecided]');
+  if (u) u.onchange = () => { state.undecided = u.checked; rerender(); };
+  root.querySelectorAll('[data-loc-del]').forEach(x => x.onclick = () => { state.locs.splice(Number(x.dataset.locDel), 1); rerender(); });
+  const sb = q('[data-loc-b]'), sf = q('[data-loc-f]'), sr = q('[data-loc-r]'), add = q('[data-loc-add]');
+  if (sb) sb.onchange = () => { state.pick.building = sb.value; state.pick.room = ''; rerender(); };
+  if (sf) sf.onchange = () => { state.pick.floor = Number(sf.value); state.pick.room = ''; rerender(); };
+  if (sr) sr.onchange = () => { state.pick.room = sr.value; };
+  if (add) add.onclick = () => {
+    const p = state.pick;
+    if (!p.room) return toast('추가할 교실을 골라 주세요', 'err');
+    state.locs.push({ building: p.building, floor: p.floor, room: p.room });
+    p.room = '';
+    rerender();
+  };
+}
+// 저장 전 검사: 미정이 아니면 1곳 이상, 운영자는 다른 부스 교실과 겹치면 안 됨
+function checkLocState(state, boothId, admin) {
+  if (state.undecided) return '';
+  if (!state.locs.length) return "교실을 하나 이상 추가하거나 '위치 미정'을 체크해 주세요.";
+  if (!admin) {
+    const usage = Store.roomUsage(boothId);
+    const clash = state.locs.find(l => usage[locKey(l)]);
+    if (clash) return `${locLabel(clash)}은(는) 이미 다른 부스가 쓰고 있어요.`;
+  }
+  return '';
+}
+
 function opEdit(root, b) {
-  if (!ui.draft || ui.draft.id !== b.id) ui.draft = JSON.parse(JSON.stringify(b));
+  if (!ui.draft || ui.draft.id !== b.id) { ui.draft = JSON.parse(JSON.stringify(b)); ui.draft.loc = newLocState(b); }
   const d = ui.draft;
-  if (!d.building) d.building = 'main';
-  const taken = new Set(Store.booths().filter(x => x.id !== b.id).map(roomKey));
-  const isTaken = (r) => taken.has(`${d.building}|${d.floor}|${r}`);
   const hasResv = Store.resvOfBooth(b.id).some(r => r.status === 'reserved');
 
   const blockEditor = (bl, i) => {
@@ -1223,12 +1324,8 @@ function opEdit(root, b) {
       </fieldset>
 
       <fieldset>
-        <legend>3. 위치</legend>
-        <div class="grid2">
-          <label>건물<select id="bld">${Object.entries(BUILDINGS).map(([k, v]) => `<option value="${k}" ${d.building === k ? 'selected' : ''}>${v.label}</option>`).join('')}</select></label>
-          <label>층<select id="floor">${FLOOR_NUMS.map(f => `<option value="${f}" ${d.floor === f ? 'selected' : ''}>${f}층</option>`).join('')}</select></label>
-        </div>
-        <label>교실<select id="room">${bookableRooms(d.building, d.floor).map(r => `<option value="${esc(r)}" ${d.room === r ? 'selected' : ''} ${isTaken(r) ? 'disabled' : ''}>${esc(r)}${isTaken(r) ? ' (사용 중)' : ''}</option>`).join('')}</select></label>
+        <legend>3. 위치 (여러 곳 선택 가능 · 미정 가능)</legend>
+        <div id="loc-ed">${locEditorHTML(d.loc, b.id, false)}</div>
       </fieldset>
 
       <fieldset>
@@ -1249,6 +1346,7 @@ function opEdit(root, b) {
     </form>`;
 
   const rerender = () => opEdit(root, b);
+  bindLocEditor(document.getElementById('loc-ed'), d.loc, rerender);
 
   // 입력값을 초안(draft)에 바로 반영
   root.oninput = (e) => {
@@ -1259,13 +1357,6 @@ function opEdit(root, b) {
   root.onchange = async (e) => {
     const el = e.target;
     if (el.name === 'type') { d.type = el.value; return rerender(); }
-    if (el.id === 'bld' || el.id === 'floor') {
-      if (el.id === 'bld') d.building = el.value; else d.floor = Number(el.value);
-      const rooms = bookableRooms(d.building, d.floor);
-      d.room = rooms.find(r => !isTaken(r)) || rooms[0];
-      return rerender();
-    }
-    if (el.id === 'room') d.room = el.value;
     if (el.dataset.themePick) {
       const t = el.dataset.themePick;
       d.themes = el.checked ? [...d.themes, t] : d.themes.filter(x => x !== t);
@@ -1290,10 +1381,11 @@ function opEdit(root, b) {
   document.getElementById('edit-form').onsubmit = (e) => {
     e.preventDefault();
     if (!d.name.trim() || !d.club.trim()) return toast('부스 이름과 동아리 이름을 입력하세요', 'err');
-    if (Store.booths().some(x => x.id !== b.id && roomKey(x) === roomKey(d))) return toast('이미 다른 부스가 사용 중인 교실이에요', 'err');
+    const locErr = checkLocState(d.loc, b.id, false);
+    if (locErr) return toast(locErr, 'err');
     const patch = {
       name: d.name.trim(), club: d.club.trim(), emoji: d.emoji || '⭐', color: d.color, summary: d.summary,
-      cover: d.cover, type: d.type, building: d.building, floor: d.floor, room: d.room, themes: d.themes, blocks: d.blocks,
+      cover: d.cover, type: d.type, ...locPatch(d.loc.undecided ? [] : d.loc.locs), themes: d.themes, blocks: d.blocks,
     };
     if (JSON.stringify(patch).length > 900000) return toast('사진 용량이 너무 커요. 사진 블록을 줄여주세요.', 'err');
     if (b.status === 'draft' || b.status === 'hidden') patch.status = 'pending';
@@ -1712,18 +1804,18 @@ function opResv(root, b) {
 function viewAdmin(tab = 'dash') {
   const sess = getSession();
   if (!sess || sess.role !== 'admin') { location.hash = '#/admin/login'; return; }
-  const tabs = [['dash', '대시보드'], ['booths', '부스'], ['resv', '예약'], ['qr', 'QR 코드'], ['notices', '공지'], ['accounts', '계정'], ['settings', '설정']];
+  const tabs = [['dash', '대시보드'], ['booths', '부스'], ['resv', '예약'], ['qr', 'QR 코드'], ['sec', '보안'], ['notices', '공지'], ['accounts', '계정'], ['settings', '설정']];
   app.innerHTML = `
     ${pageBanner('운영 본부', 'ADMINISTRATION', [['운영 본부', '']])}
     <div class="op-head">
       <p class="small muted">${esc(sess.id)} 관리자님 · 모든 부스와 예약 현황을 관리합니다.</p>
-      <div class="row"><a class="btn ghost sm" href="#/password">비밀번호 변경</a><button class="btn ghost sm" id="logout">로그아웃</button></div>
+      <div class="row"><a class="btn ghost sm" href="guide.html" target="_blank" rel="noopener">📘 운영 안내서</a><a class="btn ghost sm" href="#/password">비밀번호 변경</a><button class="btn ghost sm" id="logout">로그아웃</button></div>
     </div>
     <div class="tabs">${tabs.map(([k, l]) => `<a href="#/admin/${k}" class="${tab === k ? 'on' : ''}">${l}</a>`).join('')}</div>
     <div id="ad-body"></div>`;
   document.getElementById('logout').onclick = logout;
   const body = document.getElementById('ad-body');
-  ({ dash: adDash, booths: adBooths, resv: adResv, qr: adQR, notices: adNotices, accounts: adAccounts, settings: adSettings })[tab](body);
+  ({ dash: adDash, booths: adBooths, resv: adResv, qr: adQR, sec: adSecurity, notices: adNotices, accounts: adAccounts, settings: adSettings })[tab](body);
 }
 
 function adDash(root) {
@@ -1744,7 +1836,7 @@ function adDash(root) {
   // 부스가 있는 층만 안내도로 보여줌 (본관 → 후관, 위층부터)
   const floorsUsed = [];
   Object.keys(BUILDINGS).forEach(bid => [...FLOOR_NUMS].reverse().forEach(f => {
-    if (all.some(b => (b.building || 'main') === bid && b.floor === f)) floorsUsed.push([bid, f]);
+    if (all.some(b => onFloor(b, bid, f))) floorsUsed.push([bid, f]);
   }));
 
   const alerts = [
@@ -1758,7 +1850,7 @@ function adDash(root) {
 
   root.innerHTML = `
     <div class="stats">
-      <div class="stat hl"><small>현재 접속</small><b>${p.total}</b><small>관람 ${p.visitor} · 운영 ${p.op} · 관리 ${p.admin}</small></div>
+      <div class="stat hl"><small>현재 접속</small><b>${p.total}</b><small>${Store.REMOTE && !Store.db.settings.presenceVisitors ? `운영 ${p.op} · 관리 ${p.admin} (관람객 집계 꺼짐)` : `관람 ${p.visitor} · 운영 ${p.op} · 관리 ${p.admin}`}</small></div>
       <div class="stat"><small>가입 참여자</small><b>${Store.accounts().filter(a => a.role === 'student').length}</b><small>학번+이름 계정</small></div>
       <div class="stat"><small>공개 부스</small><b>${pub.length}</b><small>전체 ${all.length}</small></div>
       <div class="stat"><small>혼잡 부스</small><b class="red">${busy.length}</b></div>
@@ -1787,19 +1879,27 @@ function adDash(root) {
 function adBooths(root) {
   const list = [...Store.booths()].sort((a, b) => (a.status === 'pending' ? -1 : 0) - (b.status === 'pending' ? -1 : 0) || a.id.localeCompare(b.id));
   const free = Store.freeRooms();
+  const usage = Store.roomUsage();
+  // 관리자는 모든 교실을 고를 수 있음 (이미 쓰는 교실은 '함께 사용'), 또는 '위치 미정'
+  const locOptions = `<option value="undecided">📍 위치 미정 (나중에 정하기)</option>` + Object.keys(BUILDINGS).map(bid => FLOOR_NUMS.map(f => {
+    const rooms = bookableRooms(bid, f);
+    return rooms.length ? `<optgroup label="${buildingLabel(bid)} ${f}층">${rooms.map(r => {
+      const w = usage[`${bid}|${f}|${r}`];
+      return `<option value="${bid}|${f}|${esc(r)}" ${!w && free[0] && free[0].building === bid && free[0].floor === f && free[0].room === r ? 'selected' : ''}>${buildingLabel(bid)} ${f}층 ${esc(r)}${w ? ` (함께 사용: ${esc(w.map(x => x.name).join(', '))})` : ''}</option>`;
+    }).join('')}</optgroup>` : '';
+  }).join('')).join('');
+  const sel = Store.booth(ui.adLocBooth);
+  if (sel && (!ui.adLoc || ui.adLoc.id !== sel.id)) ui.adLoc = { id: sel.id, ...newLocState(sel) };
   root.innerHTML = `
     <details class="panel add-booth" ${list.length === 0 ? 'open' : ''}>
       <summary><h2>➕ 새 부스 추가</h2><span class="small muted">빈 교실 ${free.length}개</span></summary>
-      ${free.length ? `
+      ${`
       <form class="form" id="add-form">
         <div class="grid2">
           <label>동아리 이름<input name="club" required maxlength="20" placeholder="예) 천문동아리 별빛"></label>
           <label>부스 이름 (선택)<input name="name" maxlength="30" placeholder="비우면 '동아리 이름 + 부스'"></label>
           <label>유형<select name="type"><option value="live">🚶 당일 부스 (현장 입장)</option><option value="reserve">🎟️ 예약 부스</option></select></label>
-          <label>위치 (빈 교실만 표시)<select name="loc">${Object.keys(BUILDINGS).map(bid => FLOOR_NUMS.map(f => {
-            const rooms = free.filter(r => r.building === bid && r.floor === f);
-            return rooms.length ? `<optgroup label="${buildingLabel(bid)} ${f}층">${rooms.map(r => `<option value="${bid}|${f}|${esc(r.room)}">${buildingLabel(bid)} ${f}층 ${esc(r.room)}</option>`).join('')}</optgroup>` : '';
-          }).join('')).join('')}</select></label>
+          <label>위치 (교실 추가는 만든 뒤 '위치 바꾸기'에서)<select name="loc">${locOptions}</select></label>
           <label>대표 이모지<input name="emoji" maxlength="4" value="⭐"></label>
         </div>
         <label class="check"><input type="checkbox" name="account" checked> 운영자 계정도 함께 발급</label>
@@ -1809,8 +1909,16 @@ function adBooths(root) {
         </div>
         <button class="btn">부스 추가</button>
         <p class="small muted">새 부스는 '작성 중' 상태로 만들어져요. 운영자가 페이지를 채우면 승인 후 공개하세요.</p>
-      </form>` : '<p class="muted">빈 교실이 없어요. 부스를 삭제하거나 js/data.js의 BUILDINGS에 교실을 추가하세요.</p>'}
+      </form>`}
     </details>
+
+    ${sel ? `
+    <div class="panel loc-admin" id="loc-admin">
+      <h2>📍 ${sel.emoji} ${esc(sel.name)} · 위치 바꾸기</h2>
+      <p class="small muted">관리자는 위치를 자유롭게 정할 수 있어요. 여러 교실을 지정하거나, 다른 부스와 같은 교실을 함께 쓰게 하거나, '위치 미정'으로 둘 수 있어요.</p>
+      <div id="loc-ed">${locEditorHTML(ui.adLoc, sel.id, true)}</div>
+      <div class="row"><button class="btn" id="loc-save">위치 저장</button><button class="btn ghost" id="loc-cancel">닫기</button></div>
+    </div>` : ''}
 
     <div class="panel scroll-x">
       <h2>전체 부스 ${list.length}개</h2>
@@ -1824,7 +1932,7 @@ function adBooths(root) {
           return `<tr>
             <td><a href="#/booth/${b.id}">${b.emoji} ${esc(b.name)}</a><br><small class="muted">${esc(b.club)}</small></td>
             <td>${b.type === 'reserve' ? '예약' : '당일'}</td>
-            <td>${locText(b)}</td>
+            <td>${locAll(b)}<br><button class="link-btn" data-loc="${b.id}">${ui.adLocBooth === b.id ? '편집 중' : '위치 바꾸기'}</button></td>
             <td>${crowdBadge(b)}${b.type !== 'reserve' && !Store.isManual(b) && b.crowdOverride ? '<br><small class="muted">운영자 고정</small>' : ''}</td>
             <td>${b.type === 'reserve' ? '<small class="muted">예약률 자동</small>' : `<select class="mode-sel" data-mode="${b.id}">
                 <option value="qr" ${Store.isManual(b) ? '' : 'selected'}>📱 QR 자동</option>
@@ -1848,7 +1956,8 @@ function adBooths(root) {
     e.preventDefault();
     const f = e.target, btn = f.querySelector('button');
     const [building, floor, room] = f.loc.value.split('|');
-    const opts = { name: f.name.value, type: f.type.value, building, floor: Number(floor), room, emoji: f.emoji.value.trim() || '⭐' };
+    const locations = f.loc.value === 'undecided' ? [] : [{ building, floor: Number(floor), room }];
+    const opts = { name: f.name.value, type: f.type.value, locations, emoji: f.emoji.value.trim() || '⭐' };
     const custom = f.accId.value.trim() ? { id: f.accId.value.trim(), pw: f.accPw.value || OP_DEFAULT_PW } : null;
     const club = f.club.value.trim();
     btn.disabled = true; btn.textContent = '추가 중…';
@@ -1864,6 +1973,27 @@ function adBooths(root) {
     viewAdmin('booths');
   };
 
+  // 위치 바꾸기 (관리자 자유 지정)
+  root.querySelectorAll('[data-loc]').forEach(btn => btn.onclick = () => {
+    ui.adLocBooth = ui.adLocBooth === btn.dataset.loc ? null : btn.dataset.loc;
+    ui.adLoc = null;
+    viewAdmin('booths');
+    const p = document.getElementById('loc-admin');
+    if (p) p.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+  if (sel) {
+    const box = document.getElementById('loc-admin');
+    bindLocEditor(box, ui.adLoc, () => { viewAdmin('booths'); });
+    document.getElementById('loc-save').onclick = async () => {
+      const err = checkLocState(ui.adLoc, sel.id, true);
+      if (err) return toast(err, 'err');
+      await Store.setLocations(sel.id, ui.adLoc.undecided ? [] : ui.adLoc.locs);
+      toast(`'${sel.name}' 위치를 ${ui.adLoc.undecided ? "'미정'으로" : '저장'}했어요`);
+      ui.adLocBooth = null; ui.adLoc = null;
+      viewAdmin('booths');
+    };
+    document.getElementById('loc-cancel').onclick = () => { ui.adLocBooth = null; ui.adLoc = null; viewAdmin('booths'); };
+  }
   root.querySelectorAll('[data-mode]').forEach(sel => sel.onchange = () => {
     const b = Store.booth(sel.dataset.mode);
     const label = sel.value === 'manual' ? '직접 입력' : 'QR 줄서기 자동';
@@ -1909,6 +2039,7 @@ function adResv(root) {
 
   root.innerHTML = `
     <div class="panel reset-panel" id="reset">
+      <div class="row wrap" style="justify-content:flex-end;margin:-6px 0 6px"><button type="button" class="btn ghost sm" id="em-print2">📄 비상용 명단 인쇄</button></div>
       <h2>🔄 운영 초기화</h2>
       <p class="small muted">행사를 새로 시작할 때 씁니다. 부스 페이지·계정·공지는 그대로 두고, 고른 항목만 처음 상태로 되돌려요. 직전 상태는 자동 백업에 남아요.</p>
       <form class="form" id="reset-form">
@@ -1976,6 +2107,7 @@ function adResv(root) {
     </div>` : ''}`;
 
   const refresh = (msg, type) => { if (msg) toast(msg, type); viewAdmin('resv'); };
+  document.getElementById('em-print2').onclick = printEmergencyList;
 
   document.getElementById('reset-form').onsubmit = async (e) => {
     e.preventDefault();
@@ -2031,6 +2163,113 @@ function adResv(root) {
     bindResvBoard(box, refresh);
     bindSlotForm(box, sel, refresh);
   }
+}
+
+// ----- 관리자: 보안 (이상 접속 감지 · 차단) -----
+const SEC_LABEL = {
+  login_fail: ['로그인 실패', 'gray'], lockout: ['로그인 잠금', 'red'], rate_limit: ['과다 요청', 'red'], denied: ['권한 거부', 'red'],
+  blocked_try: ['차단 기기 시도', 'gray'], auto_block: ['자동 차단', 'red'],
+};
+const shortDev = (d) => (d ? String(d).replace(/^stu:/, '학생:').slice(0, 12) + (String(d).length > 12 ? '…' : '') : '-');
+function adSecurity(root) {
+  const s = Store.db.settings;
+  const logs = Store.securityLog();
+  const day = logs.filter(l => Date.now() - l.at < 86400000);
+  const cnt = (t) => day.filter(l => l.type === t).length;
+  const risks = Store.riskByDevice();
+  const blocked = Store.blockedList().slice().sort((a, b) => b.at - a.at);
+  const fmt = (ts) => { const d = new Date(ts); return `${dateLabel(dateStr(ts))} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`; };
+  root.innerHTML = `
+    <div class="stats">
+      <div class="stat ${risks.some(r => r.score >= (s.autoBlockScore || 10)) ? 'hl' : ''}"><small>위험 기기 (1시간)</small><b>${risks.length}</b><small>점수 ${s.autoBlockScore || 10}↑ 자동 차단</small></div>
+      <div class="stat"><small>로그인 실패 (24시간)</small><b>${cnt('login_fail')}</b><small>잠금 ${cnt('lockout')}회</small></div>
+      <div class="stat"><small>과다 요청 · 권한 거부</small><b class="${cnt('rate_limit') + cnt('denied') ? 'red' : ''}">${cnt('rate_limit') + cnt('denied')}</b><small>24시간</small></div>
+      <div class="stat"><small>차단된 기기</small><b>${blocked.length}</b><small>자동 차단 ${s.autoBlock ? '켜짐' : '꺼짐'}</small></div>
+    </div>
+    <p class="small muted">이 화면이 열려 있는 동안 자동 차단이 동작해요. 기능 설명은 <a href="guide.html#security" target="_blank" rel="noopener">📘 운영 안내서 → 보안</a>에 있어요.</p>
+
+    <div class="panel">
+      <h2>🚨 주의할 기기 (최근 1시간)</h2>
+      ${risks.length ? `<div class="scroll-x"><table class="tbl wide-tbl">
+        <tr><th>기기</th><th>위험 점수</th><th>내용</th><th>시도한 아이디</th><th>마지막</th><th></th></tr>
+        ${risks.map(r => `<tr class="${r.score >= (s.autoBlockScore || 10) ? 'late' : ''}">
+          <td><code title="${esc(r.device)}">${esc(shortDev(r.device))}</code></td>
+          <td><b>${r.score}</b></td>
+          <td class="small">${Object.entries(r.types).map(([t, n]) => `${(SEC_LABEL[t] || [t])[0]} ${n}`).join(' · ')}</td>
+          <td class="small">${esc([...r.ids].slice(0, 3).join(', ')) || '-'}</td>
+          <td class="small nowrap">${timeAgo(r.last)}</td>
+          <td>${Store.isBlocked(r.device) ? '<span class="badge gray">차단됨</span>' : `<button class="btn danger sm" data-block="${esc(r.device)}">차단</button>`}</td>
+        </tr>`).join('')}
+      </table></div>` : '<p class="muted">최근 1시간 동안 이상한 시도가 없어요 👍</p>'}
+    </div>
+
+    <div class="panel">
+      <h2>⛔ 차단된 기기 <span class="badge">${blocked.length}</span></h2>
+      ${blocked.length ? `<div class="scroll-x"><table class="tbl wide-tbl">
+        <tr><th>기기</th><th>이유</th><th>차단 시각</th><th></th></tr>
+        ${blocked.map(x => `<tr><td><code title="${esc(x.id)}">${esc(shortDev(x.id))}</code></td><td class="small">${esc(x.reason || '')}</td><td class="small nowrap">${fmt(x.at)}</td>
+          <td><button class="btn ghost sm" data-unblock="${esc(x.id)}">해제</button></td></tr>`).join('')}
+      </table></div>` : '<p class="small muted">차단된 기기가 없어요.</p>'}
+      <p class="small muted">차단된 기기는 예약·줄서기·회원가입을 할 수 없어요 (서버 규칙이 막아요). 둘러보기는 그대로 돼요. 잘못 차단했다면 해제하세요.</p>
+    </div>
+
+    <div class="panel">
+      <h2>🛡️ 보안 설정</h2>
+      <form class="form" id="sec-form">
+        <label class="check"><input type="checkbox" name="autoBlock" ${s.autoBlock ? 'checked' : ''}> 위험 점수가 높은 기기 자동 차단</label>
+        <label class="inline">자동 차단 기준 (1시간 위험 점수) <input type="number" name="autoBlockScore" min="3" max="100" value="${s.autoBlockScore || 10}"></label>
+        <p class="small muted">점수: 로그인 실패 1 · 로그인 잠금 3 · 과다 요청 3 · 권한 거부 2 · 차단 후 재시도 1. 기준이 낮을수록 엄격해요.</p>
+        <button class="btn sm">저장</button>
+      </form>
+    </div>
+
+    <div class="panel scroll-x">
+      <h2>📜 보안 로그 <span class="badge">${logs.length}</span></h2>
+      ${logs.length ? `<table class="tbl wide-tbl">
+        <tr><th>시각</th><th>종류</th><th>내용</th><th>아이디</th><th>기기</th></tr>
+        ${logs.slice(0, 100).map(l => `<tr>
+          <td class="small nowrap">${fmt(l.at)}</td>
+          <td><span class="badge ${(SEC_LABEL[l.type] || [])[1] || 'gray'}">${(SEC_LABEL[l.type] || [l.type])[0]}</span></td>
+          <td class="small">${esc(l.detail)}</td><td class="small">${esc(l.loginId || '-')}</td>
+          <td><code title="${esc(l.device)}">${esc(shortDev(l.device))}</code></td></tr>`).join('')}
+      </table>${logs.length > 100 ? `<p class="small muted">최근 100개만 보여 줘요 (전체 ${logs.length}개)</p>` : ''}
+      <button class="btn ghost sm" id="sec-clear">로그 모두 지우기</button>` : '<p class="small muted">기록된 보안 이벤트가 없어요.</p>'}
+    </div>`;
+
+  const refresh = (msg) => { if (msg) toast(msg); viewAdmin('sec'); };
+  root.querySelectorAll('[data-block]').forEach(b => b.onclick = async () => {
+    if (!confirm('이 기기를 차단할까요?\n차단된 기기는 예약·줄서기·회원가입을 할 수 없어요.')) return;
+    await Store.blockDevice(b.dataset.block, '관리자 수동 차단');
+    refresh('차단했어요');
+  });
+  root.querySelectorAll('[data-unblock]').forEach(b => b.onclick = async () => { await Store.unblockDevice(b.dataset.unblock); refresh('차단을 해제했어요'); });
+  document.getElementById('sec-form').onsubmit = (e) => {
+    e.preventDefault();
+    Store.setSettings({ autoBlock: e.target.autoBlock.checked, autoBlockScore: Math.max(3, Number(e.target.autoBlockScore.value) || 10) });
+    refresh('보안 설정을 저장했어요');
+  };
+  const c = document.getElementById('sec-clear');
+  if (c) c.onclick = async () => { if (!confirm('보안 로그를 모두 지울까요?')) return; await Store.clearSecurityLog(); refresh('로그를 지웠어요'); };
+}
+
+// ----- 비상용 명단 인쇄 (서버 장애에 대비해 미리 종이로) -----
+function printEmergencyList() {
+  const fmtP = (p) => { const d = String(p || '').replace(/\D/g, ''); return d ? '***-****-' + d.slice(-4) : '-'; };
+  const booths = Store.booths().filter(b => b.status === 'approved').sort((a, b) => a.id.localeCompare(b.id));
+  const parts = booths.map(b => {
+    if (b.type === 'reserve') {
+      const rs = Store.resvOfBooth(b.id).filter(r => r.status === 'reserved' || r.status === 'checked');
+      const rows = Store.slotsOf(b.id).map(s => {
+        const list = rs.filter(r => r.slotId === s.id);
+        return list.length ? list.map(r => `<tr><td>${dateLabel(s.date)} ${s.start}</td><td>${esc(r.name)}</td><td>${Store.partyOf(r)}</td><td>${fmtP(r.phone || r.phone4)}</td><td>${r.code}</td><td>${r.status === 'checked' ? '입장' : '□'}</td></tr>`).join('') : '';
+      }).join('');
+      return `<section class="em-booth"><h3>${b.emoji} ${esc(b.name)} <small>${locAll(b)} · 예약</small></h3>${rows ? `<table><tr><th>회차</th><th>이름</th><th>인원</th><th>전화</th><th>예약번호</th><th>입장</th></tr>${rows}</table>` : '<p>예약 없음</p>'}</section>`;
+    }
+    const ts = Store.ticketsOf(b.id).filter(t => t.status === 'waiting' || t.status === 'called');
+    return `<section class="em-booth"><h3>${b.emoji} ${esc(b.name)} <small>${locAll(b)} · 줄서기</small></h3>${ts.length ? `<table><tr><th>번호</th><th>이름</th><th>상태</th><th>입장</th></tr>${ts.map(t => `<tr><td>${t.no}</td><td>${esc(t.name)}</td><td>${t.status === 'called' ? '호출됨' : '대기'}</td><td>□</td></tr>`).join('')}</table>` : '<p>대기 없음</p>'}</section>`;
+  }).join('');
+  const d = new Date();
+  printPart(`<div class="em-print"><h2>UJHS Festival 비상용 명단</h2><p>${dateLabel(dateStr(d.getTime()))} ${pad2(d.getHours())}:${pad2(d.getMinutes())} 기준 · 서버 장애 시 이 종이로 입장 확인 (전화번호는 뒤 4자리만)</p>${parts}</div>`);
 }
 
 // ----- 관리자: QR 코드 만들기 · 다시 만들기 · 삭제 · 인쇄 -----
@@ -2232,6 +2471,19 @@ function adSettings(root) {
   const cur = fromMin(d.getHours() * 60 + d.getMinutes());
   root.innerHTML = `
     <div class="panel">
+      <h2>💾 서버 절약 · 장애 대비</h2>
+      <p class="small muted">많은 사람이 동시에 쓰면 서버 사용량이 무료 한도를 넘을 수 있어요. 자세한 내용은 <a href="guide.html#server" target="_blank" rel="noopener">운영 안내서 → 서버 장애 대응</a>을 보세요.</p>
+      <form class="form" id="saver-form">
+        <label class="check"><input type="checkbox" name="presenceVisitors" ${s.presenceVisitors ? 'checked' : ''}> 관람객 접속자 수 집계 (켜면 관람객 1명당 5분마다 서버 쓰기가 생겨요. 행사 당일엔 꺼 두기를 권해요)</label>
+        <button class="btn sm">저장</button>
+      </form>
+      <div class="row wrap" style="margin-top:10px">
+        <button class="btn ghost sm" id="em-print">📄 비상용 예약·줄서기 명단 인쇄</button>
+        <button class="btn ghost sm" id="em-json">💾 전체 백업(JSON) 지금 받기</button>
+      </div>
+    </div>
+
+    <div class="panel">
       <h2>🔐 관리자 비밀번호</h2>
       <p class="small muted">처음 설정한 비밀번호(예: 1234)는 꼭 바꿔 두세요. 링크를 아는 누구나 로그인을 시도할 수 있어요.</p>
       <a class="btn sm" href="#/password">비밀번호 바꾸기</a>
@@ -2362,6 +2614,9 @@ function adSettings(root) {
     Backup.downloadJSON(sn.data, `UJHS_autobackup_${new Date(sn.at).toISOString().slice(0, 16).replace(/[-:T]/g, '')}.json`);
   });
 
+  document.getElementById('saver-form').onsubmit = (e) => { e.preventDefault(); Store.setSettings({ presenceVisitors: e.target.presenceVisitors.checked }); toast('저장했어요'); };
+  document.getElementById('em-print').onclick = printEmergencyList;
+  document.getElementById('em-json').onclick = () => { Backup.downloadJSON(); toast('JSON 백업 파일을 내려받았어요'); };
   document.getElementById('sf').onsubmit = (e) => {
     e.preventDefault();
     const f = e.target;
@@ -2470,7 +2725,7 @@ const routes = [
   { re: /^\/op\/login$/,                                          mode: 'visitor', view: () => viewLogin('login', 'op') },
   { re: /^\/op(?:\/(edit|crowd|resv))?$/,                         mode: 'op',      view: (t) => viewOp(t),         live: (t) => t !== 'edit' },
   { re: /^\/admin\/login$/,                                       mode: 'visitor', view: () => viewLogin('login', 'admin') },
-  { re: /^\/admin(?:\/(dash|booths|resv|qr|notices|accounts|settings))?$/, mode: 'admin', view: (t) => viewAdmin(t),   live: (t) => !t || t === 'dash' || t === 'booths' },
+  { re: /^\/admin(?:\/(dash|booths|resv|qr|sec|notices|accounts|settings))?$/, mode: 'admin', view: (t) => viewAdmin(t),   live: (t) => !t || t === 'dash' || t === 'booths' || t === 'sec' },
   { re: /^\/password$/,                                           mode: 'visitor', view: () => viewPassword() },
   { re: /^\/setup$/,                                              mode: 'visitor', view: () => viewSetup() },
 ];
@@ -2516,6 +2771,7 @@ function router() {
     r.view(m[1], m[2]);
     markBanner();
     updateCallBar();
+    updateSysBar();
     if (prev !== path) window.scrollTo(0, 0);
     onScroll();
     return;
@@ -2575,7 +2831,7 @@ let changeTimer = null;
 function onStoreChange() {
   if (!current) return;
   clearTimeout(changeTimer);
-  changeTimer = setTimeout(() => { softRefresh(); updateClock(); updateCallBar(); }, 150);
+  changeTimer = setTimeout(() => { softRefresh(); updateClock(); updateCallBar(); updateSysBar(); }, 150);
 }
 
 // 시작!
@@ -2596,5 +2852,14 @@ Store.init(onStoreChange, (msg) => toast(msg, 'err')).then(() => {
     updateClock();
     softRefresh();
     updateCallBar();
+    updateSysBar();
+    Store.autoBlock();   // 관리자 화면이 열려 있으면 위험 기기 자동 차단
   }, 10000);
+  // 서버 절약: 화면이 1분 넘게 꺼져 있으면 공용 데이터 실시간 연결을 잠시 멈춤 → 다시 보면 이어 받음
+  let hideTimer = null;
+  document.addEventListener('visibilitychange', () => {
+    clearTimeout(hideTimer);
+    if (document.hidden) hideTimer = setTimeout(() => Store.pauseLive(), 60000);
+    else { Store.resumeLive(); updateSysBar(); }
+  });
 });

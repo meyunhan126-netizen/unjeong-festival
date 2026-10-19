@@ -76,6 +76,29 @@ function bookableRooms(building, floor) {
 }
 const buildingLabel = (id) => (BUILDINGS[id] ? BUILDINGS[id].label : '본관');
 
+// ---------------------------------------------------------
+// 부스 위치: booth.locations = [{ building, floor, room }, ...]
+//   - 여러 곳을 쓸 수 있음 (예: 방탈출이 교실 2칸)
+//   - 빈 배열이면 '위치 미정' → 층별 안내도에는 안 나오고, 부스 페이지·홍보는 그대로 공개
+//   - 예전 데이터(building/floor/room 하나만 있는 부스)도 그대로 읽힘
+// ---------------------------------------------------------
+function locsOf(b) {
+  if (!b) return [];
+  if (Array.isArray(b.locations)) return b.locations.filter(l => l && l.room).map(l => ({ building: BUILDINGS[l.building] ? l.building : 'main', floor: Number(l.floor) || 1, room: String(l.room) }));
+  return b.room ? [{ building: BUILDINGS[b.building] ? b.building : 'main', floor: Number(b.floor) || 1, room: String(b.room) }] : [];
+}
+const locKey = (l) => `${l.building || 'main'}|${l.floor}|${l.room}`;
+const isUndecided = (b) => locsOf(b).length === 0;
+const onFloor = (b, bid, f) => locsOf(b).some(l => l.building === bid && l.floor === f);
+const locLabel = (l) => `${buildingLabel(l.building)} ${l.floor}층 ${l.room}`;
+// 저장할 때: 위치 목록 + 첫 번째 위치를 예전 필드(building/floor/room)에도 넣어 둠 (예전 코드·엑셀과 호환)
+function locPatch(locs) {
+  const list = (locs || []).filter(l => l && l.room).map(l => ({ building: l.building || 'main', floor: Number(l.floor) || 1, room: String(l.room) }));
+  const uniq = [...new Map(list.map(l => [locKey(l), l])).values()];
+  const p = uniq[0];
+  return { locations: uniq, building: p ? p.building : null, floor: p ? p.floor : null, room: p ? p.room : '' };
+}
+
 // 혼잡도 단계
 const CROWD = {
   free:   { label: '여유',     color: '#3f8f6b', icon: '🟢' },
@@ -87,6 +110,7 @@ const CROWD = {
 // 예시 부스 10개 (waiting = 당일 부스의 예시 대기 인원 → 번호표로 만들어짐)
 const BOOTH_SEED = [
   { club: '미스터리 연구회', name: '사라진 교장선생님의 열쇠', emoji: '🔐', color: '#4f46e5', type: 'reserve', building: 'main', floor: 5, room: '탐구학습실Ⅰ',
+    locs: [{ building: 'main', floor: 5, room: '탐구학습실Ⅰ' }, { building: 'main', floor: 5, room: '탐구학습실Ⅱ' }],   // 예시: 교실 2곳 사용
     themes: ['escape'], summary: '30분 안에 교장실의 비밀을 풀어라! 4~6인 팀 방탈출', crowd: 'busy', waiting: 0, min: 30 },
   { club: '바리스타부', name: '카페 운정', emoji: '☕', color: '#92400e', type: 'live', building: 'main', floor: 1, room: 'Wi카페(세미나실)',
     themes: ['cafe'], summary: '동아리원이 직접 내린 핸드드립 커피와 수제 레모네이드', crowd: 'normal', waiting: 8, min: 2 },
@@ -146,6 +170,10 @@ function defaultSettings() {
     queueBusy: 15,         // 대기 인원이 이 이상이면 '혼잡'
     callGraceMin: 5,       // 호출 후 이 시간(분) 안에 오지 않으면 자동 노쇼
     maxQueuePerPerson: 2,  // 1인당 동시에 설 수 있는 줄 수
+    // ---- 보안 · 서버 절약 ----
+    autoBlock: true,        // 위험 점수가 높은 기기 자동 차단 (관리자 화면이 열려 있을 때 동작)
+    autoBlockScore: 10,     // 1시간 위험 점수 기준 (로그인 실패 1 · 잠금 3 · 과다 요청 3 · 권한 거부 2)
+    presenceVisitors: false, // 관람객 접속자 수 집계 (켜면 서버 쓰기·읽기가 크게 늘어요)
   };
 }
 
@@ -163,11 +191,12 @@ function createSeed() {
     const isReserve = s.type === 'reserve';
     const booth = {
       id, name: s.name, club: s.club, emoji: s.emoji, color: s.color, type: s.type,
-      building: s.building, floor: s.floor, room: s.room, themes: s.themes, summary: s.summary, cover: '',
+      ...locPatch(s.locs || [{ building: s.building, floor: s.floor, room: s.room }]),
+      themes: s.themes, summary: s.summary, cover: '',
       blocks: [
         { type: 'text', title: '부스 소개', body: s.summary + '\n' + s.club + '가 한 학기 동안 준비한 부스입니다. 많이 놀러 와 주세요!' },
         { type: 'info', title: '운영 정보', body:
-          `운영 시간: 10:00 ~ 16:00\n소요 시간: 약 ${s.min}분\n${isReserve ? '입장 방법: 앱에서 예약 후 예약번호 제시' : '입장 방법: QR 줄서기'}\n위치: ${buildingLabel(s.building)} ${s.floor}층 ${s.room}` },
+          `운영 시간: 10:00 ~ 16:00\n소요 시간: 약 ${s.min}분\n${isReserve ? '입장 방법: 앱에서 예약 후 예약번호 제시' : '입장 방법: QR 줄서기'}\n위치: ${(s.locs || [s]).map(locLabel).join(', ')}` },
       ],
       status: 'approved',           // draft | pending | approved | hidden
       minPerPerson: Math.max(1, Math.round(s.min / 4)),

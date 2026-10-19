@@ -63,7 +63,9 @@ const Store = (() => {
       auth.useEmulator('http://127.0.0.1:9099');
       fs.useEmulator('127.0.0.1', 8080);
     }
-    db = { version: VERSION, settings: defaultSettings(), booths: [], slots: [], reservations: [], notices: [], accounts: [], queues: [], tickets: [] };
+    // 서버 절약 ①: 받은 데이터를 휴대폰에 저장해 두고, 다시 열 때는 바뀐 것만 받음 (+ 잠깐 끊겨도 화면 유지)
+    try { await fs.enablePersistence({ synchronizeTabs: true }); } catch (e) { /* 지원 안 되는 브라우저면 그냥 진행 */ }
+    db = { version: VERSION, settings: defaultSettings(), booths: [], slots: [], reservations: [], notices: [], accounts: [], queues: [], tickets: [], securityLog: [], blocked: [] };
 
     await new Promise((resolve) => {
       let first = true;
@@ -98,10 +100,24 @@ const Store = (() => {
     return new Promise((resolve) => {
       if (unsubs[name]) unsubs[name]();
       unsubs[name] = ref.onSnapshot(
-        (snap) => { apply(snap); onChange(name); resolve(); },
-        (err) => { console.error(name, err); resolve(); }
+        (snap) => { apply(snap); if (health.state !== 'ok' && !snap.metadata.fromCache) setHealth('ok'); onChange(name); resolve(); },
+        (err) => { console.error(name, err); noteError(err); resolve(); }
       );
     });
+  }
+  const PUBLIC = ['settings', 'booths', 'slots', 'notices', 'queues'];
+  let paused = false;
+  // 서버 절약 ②: 관람객 화면이 1분 넘게 꺼져 있으면(주머니 속 휴대폰) 공용 데이터 실시간 연결을 멈췄다가, 다시 보면 이어 받음
+  //   (내 예약·번호표 연결은 유지 → 호출 알림은 그대로 옴)
+  function pauseLive() {
+    if (!REMOTE || paused || (session && (session.role === 'admin' || session.role === 'op'))) return;
+    PUBLIC.forEach(k => { if (unsubs[k]) { unsubs[k](); delete unsubs[k]; } });
+    paused = true;
+  }
+  function resumeLive() {
+    if (!REMOTE || !paused) return;
+    paused = false;
+    subscribePublic();
   }
   function subscribePublic() {
     return Promise.all([
@@ -136,6 +152,15 @@ const Store = (() => {
 
     db.accounts = [];
     if (unsubs.users) { unsubs.users(); delete unsubs.users; }
+    // 보안: 관리자는 보안 로그·차단 목록 전체, 다른 기기는 "내 기기가 차단됐는지"만
+    ['securityLog', 'blocked'].forEach(k => { if (unsubs[k]) { unsubs[k](); delete unsubs[k]; } });
+    db.securityLog = []; db.blocked = [];
+    if (session && session.role === 'admin') {
+      listen('securityLog', fs.collection('securityLog').orderBy('at', 'desc').limit(300), (s) => { db.securityLog = docs(s); autoBlock(); });
+      listen('blocked', fs.collection('blocked'), (s) => { db.blocked = docs(s); });
+    } else if (user) {
+      listen('blocked', fs.collection('blocked').doc(user.uid), (d) => { db.blocked = d.exists ? [{ ...d.data(), id: d.id }] : []; });
+    }
     if (session && session.role === 'admin') {
       listen('users', fs.collection('users'), (s) => {
         db.accounts = s.docs.map(d => ({ uid: d.id, id: d.data().loginId, pw: d.data().initialPw || '', role: d.data().role, boothId: d.data().boothId || null, studentNo: d.data().studentNo || '', name: d.data().name || '' }));
@@ -166,6 +191,8 @@ const Store = (() => {
     })).then(() => true).catch((e) => { onError(errMsg(e)); return false; });
   }
   function errMsg(e) {
+    noteError(e);
+    if (e && e.code === 'resource-exhausted') return '서버 사용량 한도를 넘었어요. 운영 본부에 알려 주세요.';
     if (e && e.code === 'permission-denied') return '권한이 없습니다. 다시 로그인해 주세요.';
     if (e && e.code === 'unavailable') return '인터넷 연결을 확인해 주세요.';
     return '오류: ' + (e && e.message ? e.message : e);
@@ -184,6 +211,7 @@ const Store = (() => {
     if (db.settings.festivalName === '2026 운정 페스티벌') Object.assign(db.settings, { festivalName: 'UJHS Festival', subtitle: '운정고등학교 동아리 발표회' });
     if (!db.settings.heroPhotos) db.settings.heroPhotos = [];
     db.settings = { ...defaultSettings(), ...db.settings };   // 새로 생긴 설정 항목은 기본값으로 채움
+    db.securityLog = db.securityLog || []; db.blocked = db.blocked || [];
     try { session = JSON.parse(sessionStorage.getItem(SESSION_KEY)); } catch (e) { session = null; }
     autoNoShow();
   }
@@ -406,6 +434,8 @@ const Store = (() => {
   const fmtPhone = (p) => { const d = normPhone(p); return d.length === 11 ? `${d.slice(0, 3)}-${d.slice(3, 7)}-${d.slice(7)}` : d.length === 10 ? `${d.slice(0, 3)}-${d.slice(3, 6)}-${d.slice(6)}` : d; };
 
   async function reserve(slotId, { name, phone, party }) {
+    const g = guardAction('예약');
+    if (g) return { ok: false, msg: g };
     const s = slot(slotId);
     const b = s && booth(s.boothId);
     if (!s || !b) return { ok: false, msg: '존재하지 않는 시간대입니다.' };
@@ -639,6 +669,7 @@ const Store = (() => {
     if (!name) return { ok: false, msg: '이름을 입력해 주세요.' };
     if (b.stopped) return { ok: false, msg: '현재 운영이 중단된 부스입니다.' };
     if (isManual(b) && source === 'qr') return { ok: false, msg: '이 부스는 현장 줄서기로 운영해요. 부스 앞에 줄을 서 주세요.' };
+    if (source === 'qr') { const g = guardAction('줄서기'); if (g) return { ok: false, msg: g }; }
     if (!hasQueue(boothId) || queue(boothId).open === false) return { ok: false, msg: '지금은 줄서기 접수를 받지 않아요.' };
     if (source === 'qr') {
       if (b.status !== 'approved') return { ok: false, msg: '아직 공개되지 않은 부스입니다.' };
@@ -765,6 +796,142 @@ const Store = (() => {
   }
 
   // =========================================================
+  // 보안: 이상 접속 감지 · 차단
+  //   1) 로그인 잠금   : 이 기기에서 10분 안에 5번 틀리면 5분 동안 로그인 잠금 (+ Firebase 자체 시도 제한)
+  //   2) 과다 요청 제한: 1분 안에 예약·줄서기·가입을 8번 넘게 시도하면 2분 동안 멈춤
+  //   3) 보안 로그     : 로그인 실패 · 잠금 · 과다 요청 · 권한 거부 · 차단된 기기의 시도를 기록 (관리자만 읽기)
+  //   4) 기기 차단     : 관리자가 차단한 기기는 예약·줄서기·가입 불가. 서버 규칙(firestore.rules)으로 강제됨
+  //   5) 자동 차단     : 관리자 화면이 열려 있으면, 1시간 안에 기준을 넘긴 기기를 자동으로 차단
+  // =========================================================
+  const SEC = { failMax: 5, failWindow: 10 * 60000, lockMs: 5 * 60000, rateMax: 8, rateWindow: 60000, rateLockMs: 2 * 60000 };
+  const SEC_KEY = 'unjeong-sec';
+  const secState = () => { try { return JSON.parse(localStorage.getItem(SEC_KEY)) || {}; } catch (e) { return {}; } };
+  const secSave = (s) => { try { localStorage.setItem(SEC_KEY, JSON.stringify(s)); } catch (e) {} };
+  const realNow = () => Date.now();   // 보안 시간은 시연용 가상 시각과 상관없이 실제 시각 기준
+
+  // 로그인 잠금 상태 { locked, leftSec, failsLeft }
+  function loginGuard() {
+    const s = secState(), t = realNow();
+    if (s.lockUntil && s.lockUntil > t) return { locked: true, leftSec: Math.ceil((s.lockUntil - t) / 1000), failsLeft: 0 };
+    const fails = (s.fails || []).filter(x => t - x < SEC.failWindow);
+    return { locked: false, leftSec: 0, failsLeft: Math.max(0, SEC.failMax - fails.length) };
+  }
+  function recordLoginFail(id) {
+    const s = secState(), t = realNow();
+    s.fails = (s.fails || []).filter(x => t - x < SEC.failWindow).concat(t);
+    logSecurity('login_fail', `로그인 실패 (${s.fails.length}/${SEC.failMax})`, id);
+    if (s.fails.length >= SEC.failMax) {
+      s.lockUntil = t + SEC.lockMs; s.fails = [];
+      logSecurity('lockout', `로그인 ${SEC.failMax}번 실패 → ${SEC.lockMs / 60000}분 잠금`, id);
+    }
+    secSave(s);
+  }
+  function clearLoginFails() { const s = secState(); delete s.fails; delete s.lockUntil; secSave(s); }
+
+  // 과다 요청 검사: 통과하면 '' , 막히면 안내 문구
+  function rateGuard(action) {
+    const s = secState(), t = realNow();
+    if (s.rateUntil && s.rateUntil > t) return `요청이 너무 많아요. ${Math.ceil((s.rateUntil - t) / 1000)}초 뒤에 다시 시도해 주세요.`;
+    s.acts = (s.acts || []).filter(x => t - x < SEC.rateWindow).concat(t);
+    if (s.acts.length > SEC.rateMax) {
+      s.rateUntil = t + SEC.rateLockMs; s.acts = [];
+      secSave(s);
+      logSecurity('rate_limit', `1분 안에 ${SEC.rateMax}번 넘게 시도 (${action}) → ${SEC.rateLockMs / 60000}분 멈춤`);
+      return `요청이 너무 많아요. ${SEC.rateLockMs / 60000}분 뒤에 다시 시도해 주세요.`;
+    }
+    secSave(s);
+    return '';
+  }
+
+  // 보안 로그 남기기 (한 기기에서 10분에 최대 30개까지만 → 로그 자체로 서버를 괴롭히지 못하게)
+  const logTimes = [];
+  function logSecurity(type, detail = '', loginId = '') {
+    const t = realNow();
+    while (logTimes.length && t - logTimes[0] > 600000) logTimes.shift();
+    if (logTimes.length >= 30) return;
+    logTimes.push(t);
+    const entry = { type: String(type).slice(0, 20), detail: String(detail).slice(0, 200), loginId: String(loginId || '').slice(0, 40),
+      device: device(), at: t, ua: String(navigator.userAgent || '').slice(0, 200) };
+    if (!REMOTE) {
+      db.securityLog = (db.securityLog || []).concat({ id: uid('L'), ...entry }).slice(-300);
+      saveLocal();
+      return;
+    }
+    if (!auth || !auth.currentUser) return;
+    fs.collection('securityLog').add(entry).catch(() => {});
+  }
+  const securityLog = () => (db.securityLog || []).slice().sort((a, b) => b.at - a.at);
+  function clearSecurityLog() {
+    const ops = (db.securityLog || []).map(l => ['delete', 'securityLog', l.id]);
+    db.securityLog = [];
+    return commit(ops);
+  }
+
+  // 기기 차단 (차단 목록 문서 ID = 기기 ID = Firebase 로그인 ID)
+  const blockedList = () => db.blocked || [];
+  const isBlocked = (dev = device()) => blockedList().some(x => x.id === dev);
+  function blockDevice(dev, reason = '관리자 차단') {
+    if (!dev || isBlocked(dev)) return Promise.resolve(true);
+    const item = { id: dev, reason: String(reason).slice(0, 100), at: realNow(), by: session ? session.id : '' };
+    db.blocked = blockedList().concat(item);
+    return commit([['set', 'blocked', dev, item]]);
+  }
+  function unblockDevice(dev) {
+    db.blocked = blockedList().filter(x => x.id !== dev);
+    return commit([['delete', 'blocked', dev]]);
+  }
+  const BLOCK_MSG = '이 기기는 운영 본부에 의해 이용이 제한되었어요. 문제가 있다면 운영 본부에 문의해 주세요.';
+  // 예약·줄서기·가입 전에 부르는 공통 검사: 통과하면 ''
+  function guardAction(action) {
+    if (window.EMERGENCY && window.EMERGENCY.on) return window.EMERGENCY.message || '지금은 비상 운영 중이라 앱 접수를 잠시 멈췄어요. 현장에서 접수해 주세요.';
+    if (isBlocked()) { logSecurity('blocked_try', `차단된 기기의 시도 (${action})`); return BLOCK_MSG; }
+    return rateGuard(action);
+  }
+
+  // 기기별 위험 점수 (최근 1시간): 로그인 실패 1 · 잠금 3 · 과다 요청 3 · 권한 거부 2 · 차단 후 시도 1
+  const RISK = { login_fail: 1, lockout: 3, rate_limit: 3, denied: 2, blocked_try: 1 };
+  function riskByDevice(windowMs = 3600000) {
+    const t = realNow(), map = {};
+    securityLog().filter(l => t - l.at < windowMs && RISK[l.type]).forEach(l => {
+      const m = map[l.device] = map[l.device] || { device: l.device, score: 0, count: 0, last: 0, ids: new Set(), types: {} };
+      m.score += RISK[l.type]; m.count++; m.last = Math.max(m.last, l.at);
+      if (l.loginId) m.ids.add(l.loginId);
+      m.types[l.type] = (m.types[l.type] || 0) + 1;
+    });
+    return Object.values(map).sort((a, b) => b.score - a.score);
+  }
+  // 자동 차단: 관리자 기기에서만 실행 (차단 목록은 관리자만 쓸 수 있음)
+  const pendingBlock = new Set();
+  function autoBlock() {
+    if (!db.settings.autoBlock || !session || session.role !== 'admin') return;
+    const limit = db.settings.autoBlockScore || 10;
+    riskByDevice().filter(r => r.score >= limit && !isBlocked(r.device) && r.device !== device() && !pendingBlock.has(r.device))
+      .forEach(r => {
+        pendingBlock.add(r.device);
+        blockDevice(r.device, `자동 차단: 1시간 위험 점수 ${r.score}`).finally(() => pendingBlock.delete(r.device));
+        logSecurity('auto_block', `기기 ${r.device.slice(0, 8)}… 자동 차단 (점수 ${r.score})`);
+      });
+  }
+
+  // =========================================================
+  // 서버 상태 (연결 끊김 · 사용량 한도 초과) — 화면 위 안내 띠에 쓰임
+  // =========================================================
+  const health = { state: 'ok', since: Date.now(), detail: '' };
+  function setHealth(state, detail = '') {
+    if (health.state === state && health.detail === detail) return;
+    Object.assign(health, { state, detail, since: Date.now() });
+    onChange('health');
+  }
+  window.addEventListener('offline', () => setHealth('offline'));
+  window.addEventListener('online', () => setHealth('ok'));
+  function noteError(e) {
+    if (!e) return;
+    if (e.code === 'resource-exhausted') setHealth('quota', '서버 사용량 한도를 넘었어요');
+    else if (e.code === 'unavailable') setHealth('offline');
+    else if (e.code === 'permission-denied') logSecurity('denied', `권한 거부: ${String(e.message || '').slice(0, 120)}`);
+  }
+
+  // =========================================================
   // 공지
   // =========================================================
   // notices() = 전체 공지, notices('b01') = 해당 부스 공지, notices('all') = 모두
@@ -792,9 +959,11 @@ const Store = (() => {
   // 하나의 로그인 창에서 관리자 · 부스 운영자 · 참여자(학번+이름) 모두 로그인
   async function login(id, pw) {
     id = id.trim();
+    if (loginGuard().locked) return null;   // 잠금 중이면 시도하지 않음 (화면에서 남은 시간 안내)
     if (!REMOTE) {
       const a = db.accounts.find(x => x.id.toLowerCase() === id.toLowerCase() && x.pw === pw);
-      if (!a) return null;
+      if (!a) { recordLoginFail(id); return null; }
+      clearLoginFails();
       session = { role: a.role, id: a.id, boothId: a.boothId || null, name: a.name || '', studentNo: a.studentNo || '' };
       try { sessionStorage.setItem(SESSION_KEY, JSON.stringify(session)); } catch (e) {}
       return session;
@@ -805,11 +974,17 @@ const Store = (() => {
       const cred = await auth.signInWithEmailAndPassword(m ? studentEmail(m[1]) : staffEmail(id), authPw(pw));
       const s = await loadProfile(cred.user);
       // 참여자는 학번과 이름이 모두 맞아야 함
-      if (!s || (m && s.id !== id)) { await auth.signOut(); return null; }
+      if (!s || (m && s.id !== id)) { await auth.signOut(); recordLoginFail(id); return null; }
       session = s;
+      clearLoginFails();
       subscribeScoped(cred.user);
       return session;
-    } catch (e) { return null; }
+    } catch (e) {
+      // auth/too-many-requests = Firebase 서버가 이 계정 시도를 잠시 막은 것
+      if (e && e.code === 'auth/too-many-requests') { const st = secState(); st.lockUntil = realNow() + SEC.lockMs; secSave(st); logSecurity('lockout', 'Firebase가 시도 과다로 차단', id); }
+      else recordLoginFail(id);
+      return null;
+    }
   }
   async function logout() {
     session = null;
@@ -847,6 +1022,8 @@ const Store = (() => {
 
   // ---------- 참여자 회원가입 (아이디 = 학번 + 이름) ----------
   async function signupStudent(studentNo, name, pw) {
+    const g = guardAction('회원가입');
+    if (g) throw new Error(g);
     studentNo = String(studentNo).trim(); name = String(name).trim();
     if (!/^\d{5}$/.test(studentNo)) throw new Error('학번은 숫자 5자리로 입력하세요. 예) 20315');
     if (!/^[가-힣]{2,5}$/.test(name)) throw new Error('이름은 한글 2~5자로 입력하세요.');
@@ -957,8 +1134,14 @@ const Store = (() => {
 
   // ---------- 부스 추가 / 삭제 (관리자) ----------
   // 비어 있는 교실 목록 (exceptId 부스가 쓰는 교실은 빈 것으로 취급)
+  // 교실별로 그 교실을 쓰는 부스 목록 { 'main|5|탐구학습실Ⅰ': [부스, ...] }
+  function roomUsage(exceptId = null) {
+    const map = {};
+    db.booths.filter(b => b.id !== exceptId).forEach(b => locsOf(b).forEach(l => { (map[locKey(l)] = map[locKey(l)] || []).push(b); }));
+    return map;
+  }
   function freeRooms(exceptId = null) {
-    const used = new Set(db.booths.filter(b => b.id !== exceptId).map(roomKey));
+    const used = new Set(Object.keys(roomUsage(exceptId)));
     const list = [];
     for (const bid of Object.keys(BUILDINGS)) for (const f of FLOOR_NUMS) for (const r of bookableRooms(bid, f)) {
       if (!used.has(`${bid}|${f}|${r}`)) list.push({ building: bid, floor: f, room: r });
@@ -966,24 +1149,24 @@ const Store = (() => {
     return list;
   }
 
-  // opts = { club, name?, type?, building?, floor?, room?, emoji? } → 새 부스 (작성 중 상태)
+  // opts = { club, name?, type?, emoji?, locations? } → 새 부스 (작성 중 상태)
+  //   locations: [] 이면 '위치 미정', 주지 않으면 첫 번째 빈 교실. 관리자는 이미 쓰는 교실도 지정할 수 있음
   async function addBooth(opts) {
-    let { building, floor, room } = opts;
-    const free = freeRooms();
-    if (!floor || !room || !free.some(x => x.building === (building || 'main') && x.floor === floor && x.room === room)) {
-      if (!free.length) throw new Error('비어 있는 교실이 없어요. data.js의 BUILDINGS에 교실을 추가하세요.');
-      ({ building, floor, room } = free[0]);
+    let locs = opts.locations;
+    if (!Array.isArray(locs)) {
+      if (opts.room) locs = [{ building: opts.building || 'main', floor: Number(opts.floor) || 1, room: opts.room }];
+      else { const free = freeRooms(); locs = free.length ? [free[0]] : []; }
     }
-    building = building || 'main';
     let n = db.booths.length + 1;
     while (db.booths.some(b => b.id === 'b' + String(n).padStart(2, '0'))) n++;
     const id = 'b' + String(n).padStart(2, '0');
     const type = opts.type === 'reserve' ? 'reserve' : 'live';
     const b = {
       id, name: (opts.name || '').trim() || opts.club + ' 부스', club: opts.club, emoji: opts.emoji || '⭐', color: '#4f46e5',
-      type, building, floor, room, themes: [], summary: '', cover: '', blocks: [], status: 'draft',
+      type, ...locPatch(locs), themes: [], summary: '', cover: '', blocks: [], status: 'draft',
       minPerPerson: 3, crowdUpdatedAt: now(), shortNotice: '', stopped: false,
-      crowdMode: 'qr', crowd: 'free', waiting: 0, crowdOverride: '', waitAdjust: 0,
+      crowdMode: 'qr', crowd: 'free', waiting: 0, crowdOverride: '', waitAdjust: 0, resvOpen: true,
+      qrToken: newToken(), qrCreatedAt: now(),
       slotConfig: type === 'reserve' ? { start: '10:00', end: '15:00', interval: 20, capacity: 6 } : null,
     };
     db.booths.push(b);
@@ -992,6 +1175,9 @@ const Store = (() => {
     if (type === 'reserve') generateSlots(id, b.slotConfig);
     return b;
   }
+
+  // 부스 위치 바꾸기 (빈 배열 = 미정). 관리자는 다른 부스가 쓰는 교실도 함께 쓸 수 있게 지정 가능
+  function setLocations(boothId, locs) { return updateBooth(boothId, locPatch(locs)); }
 
   // 부스 삭제: 회차·예약·부스 공지·운영자 계정까지 함께 지움 (되돌릴 수 없음)
   async function deleteBooth(id) {
@@ -1079,9 +1265,11 @@ const Store = (() => {
   function heartbeat(tabId, role) {
     if (REMOTE) {
       // 서버 비용을 아끼기 위해 2분에 한 번만 기록 (화면을 보고 있을 때만)
+      // 서버 절약 ③: 관람객 접속 집계는 관리자가 켰을 때만, 운영자·관리자는 5분에 한 번만 기록
       const u = auth && auth.currentUser;
       if (!u || document.visibilityState !== 'visible') return;
-      if (Date.now() - lastBeat < 120000 && role === lastRole) return;
+      if (role === 'visitor' && !db.settings.presenceVisitors) return;
+      if (Date.now() - lastBeat < 300000 && role === lastRole) return;
       lastBeat = Date.now(); lastRole = role;
       fs.collection('presence').doc(u.uid).set({ t: Date.now(), role }).catch(() => {});
       return;
@@ -1096,9 +1284,9 @@ const Store = (() => {
   function presence() {
     if (REMOTE) {
       // 최근 5분 안에 기록이 있는 기기 수 (관리자만, 1분마다 새로 셈)
-      if (session && session.role === 'admin' && Date.now() - lastFetch > 60000) {
+      if (session && session.role === 'admin' && Date.now() - lastFetch > 300000) {
         lastFetch = Date.now();
-        fs.collection('presence').where('t', '>', Date.now() - 300000).get().then((s) => {
+        fs.collection('presence').where('t', '>', Date.now() - 600000).get().then((s) => {
           const res = { total: 0, visitor: 0, op: 0, admin: 0 };
           s.docs.forEach(d => { res.total++; res[d.data().role] = (res[d.data().role] || 0) + 1; });
           presenceCache = res;
@@ -1124,7 +1312,7 @@ const Store = (() => {
       const rs = resvOfBooth(b.id), ts = ticketsOf(b.id);
       const c = (st) => rs.filter(r => r.status === st).length;
       const tc = (st) => ts.filter(t => t.status === st).length;
-      rows.push([b.id, b.name, b.club, b.type === 'reserve' ? '예약' : '당일', `${buildingLabel(b.building)} ${b.floor}층 ${b.room}`,
+      rows.push([b.id, b.name, b.club, b.type === 'reserve' ? '예약' : '당일', locsOf(b).map(locLabel).join(' / ') || '위치 미정',
         CROWD[crowdKey(b)].label, waitingOf(b), c('reserved'), c('checked'), c('noshow'), c('cancelled'),
         ts.length, tc('entered'), tc('noshow'), tc('cancelled'), ts.filter(t => t.source === 'walkin').length]);
     });
@@ -1165,8 +1353,7 @@ const Store = (() => {
     }
     d.booths.forEach((b, i) => {
       if (!b.id || !b.name) throw new Error(`부스 ${i + 1}번째 줄에 id 또는 부스명이 비어 있어요.`);
-      b.building = BUILDINGS[b.building] ? b.building : 'main';
-      b.floor = Number(b.floor) || 1;
+      Object.assign(b, locPatch(locsOf(b)));   // 위치 목록 정리 (엑셀에서 비우면 '미정')
       b.themes = Array.isArray(b.themes) ? b.themes : [];
       b.blocks = Array.isArray(b.blocks) ? b.blocks : [];
       b.minPerPerson = Number(b.minPerPerson) || 1;
@@ -1269,7 +1456,7 @@ const Store = (() => {
 
   return {
     REMOTE, KEY, PRESENCE_KEY, get db() { return db; },
-    init, reloadLocal, now, nowMin, setSimTime, device,
+    init, reloadLocal, now, nowMin, setSimTime, device, pauseLive, resumeLive,
     booths, booth, publicBooths, updateBooth, setCrowd, crowdKey, levelOf, isManual, setCrowdMode, setCrowdOverride, setWaitAdjust, waitMinutes, isStale,
     queue, hasQueue, ensureQueue, waitingOf, ticket, ticketsOf, myTickets, myActiveTickets, aheadOf,
     joinQueue, setTicketStatus, cancelTicket, callNext, setQueueOpen,
@@ -1278,9 +1465,10 @@ const Store = (() => {
     resv, myResv, resvOfBooth, partyOf, fmtPhone, reserve, setResvStatus, checkIn, autoNoShow,
     createQR, deleteQR, qrValid,
     notices, addNotice, deleteNotice,
+    loginGuard, securityLog, clearSecurityLog, blockedList, isBlocked, blockDevice, unblockDevice, riskByDevice, autoBlock, logSecurity, health, setHealth, SEC,
     session: getSession, accounts, login, logout, changePassword, isSetupNeeded, setupAdmin, signupStudent,
     createOpAccount, updateAccount, deleteAccount, STUDENT_RE,
-    freeRooms, addBooth, deleteBooth, createBoothAccount, issueMissingAccounts, reissueAccount, setSettings, reset,
+    roomUsage, freeRooms, addBooth, setLocations, deleteBooth, createBoothAccount, issueMissingAccounts, reissueAccount, setSettings, reset,
     heartbeat, presence, exportCSV, exportData, importData, snapshot, snapshots,
   };
 })();

@@ -24,6 +24,9 @@
     </div>
   </header>
 
+  <!-- 시스템 안내 띠 (비상 운영 · 서버 연결 끊김 · 사용량 초과 · 차단된 기기) -->
+  <div id="sysbar" class="sysbar" role="status" aria-live="polite"></div>
+
   <!-- 줄서기 호출 알림 띠 (내 번호가 호출되면 나타남) -->
   <div id="callbar" class="callbar" role="alert" aria-live="assertive"></div>
 
@@ -40,6 +43,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+  <script src="js/emergency.js"></script>
   <script src="js/firebase-config.js"></script>
   <!-- 순서 중요: 데이터 → 저장소 → 화면 -->
   <script src="js/data.js"></script>
